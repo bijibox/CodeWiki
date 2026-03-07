@@ -1,3 +1,5 @@
+import contextlib
+import io
 import re
 from pathlib import Path
 import logging
@@ -191,7 +193,11 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     except Exception:
         logger.warning("Using mermaid-py to validate mermaid diagrams")
         try:
-            import mermaid as md
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                import mermaid as md
 
             # Create Mermaid object and check response
             render = md.Mermaid(diagram_content)

@@ -787,8 +787,8 @@ class EditTool:
 
 async def str_replace_editor(
     ctx: RunContext[CodeWikiDeps],
-    working_dir: Literal["repo", "docs"],
     command: Literal["view", "create", "str_replace", "insert", "undo_edit"],
+    working_dir: Literal["repo", "docs"] = "docs",
     path: Optional[str] = None,
     file: Optional[str] = None,
     file_text: Optional[str] = None,
@@ -807,7 +807,7 @@ async def str_replace_editor(
         * Only `view` command is allowed when `working_dir` is `repo`.
 
     Args:
-        working_dir: The working directory to use. Choose `repo` to work with the repository files, or `docs` to work with the generated documentation files.
+        working_dir: The working directory to use. Defaults to `docs`. Choose `repo` to work with the repository files, or `docs` to work with the generated documentation files.
         command: The command to run. Allowed options are: `view`, `create`, `str_replace`, `insert`, `undo_edit`.
         path: Path to file or directory, e.g. `./chat_core.md` or `./agents/`
         file: Alias for `path` parameter (for compatibility with some models)
@@ -860,6 +860,7 @@ str_replace_editor_tool = Tool(
     description="""
 Custom editing tool for viewing, creating and editing files
     * State is persistent across command calls and discussions with the user
+    * `working_dir` defaults to `docs` when omitted
     * If `path` is a file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep.
     * The `create` command cannot be used if the specified `path` already exists as a file
     * If a `command` generates a long output, it will be truncated and marked with `<response clipped>`

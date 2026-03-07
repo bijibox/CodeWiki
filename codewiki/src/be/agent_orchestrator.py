@@ -3,8 +3,11 @@ from pydantic_ai import Agent
 # import logfire
 import logging
 import os
+import time
 import traceback
 from typing import Any, Dict, List
+
+from codewiki.cli.utils.logging import configure_logging
 
 # Configure logging and monitoring
 
@@ -43,8 +46,14 @@ from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_to
 from codewiki.src.be.agent_tools.generate_sub_module_documentations import (
     generate_sub_module_documentation_tool,
 )
+from codewiki.src.be.llm_logging import (
+    format_payload,
+    log_llm_content,
+    log_llm_summary,
+    write_llm_markdown_artifact,
+)
 from codewiki.src.be.llm_services import create_fallback_models
-from codewiki.src.be.tracing import agent_model_label, emit_json_trace_block, emit_trace_block
+from codewiki.src.be.tracing import agent_model_label
 from codewiki.src.be.utils import is_complex_module
 from codewiki.src.config import (
     Config,
@@ -60,55 +69,62 @@ class AgentOrchestrator:
 
     def __init__(self, config: Config):
         self.config = config
+        configure_logging(int(getattr(config, "verbosity", 0)))
         self.fallback_models = create_fallback_models(config)
         self.custom_instructions = config.get_prompt_addition() if config else None
 
     def create_agent(
         self, module_name: str, components: Dict[str, Any], core_component_ids: List[str]
-    ) -> Agent[CodeWikiDeps, str]:
+    ) -> tuple[Agent[CodeWikiDeps, str], str]:
         """Create an appropriate agent based on module complexity."""
 
         if is_complex_module(components, core_component_ids):
             system_prompt = self.config.prompts.build_system_prompt(
                 module_name, self.custom_instructions
             )
-            emit_trace_block(
-                self.config,
+            log_llm_content(
+                logger,
                 "AGENT SYSTEM PROMPT",
                 system_prompt,
+                prompt_type="module_generation",
                 model=agent_model_label(self.config),
-                label="module_generation",
                 context=module_name,
             )
-            return Agent[CodeWikiDeps, str](
-                self.fallback_models,
-                name=module_name,
-                deps_type=CodeWikiDeps,
-                tools=[
-                    read_code_components_tool,
-                    str_replace_editor_tool,
-                    generate_sub_module_documentation_tool,
-                ],
-                system_prompt=system_prompt,
+            return (
+                Agent[CodeWikiDeps, str](
+                    self.fallback_models,
+                    name=module_name,
+                    deps_type=CodeWikiDeps,
+                    tools=[
+                        read_code_components_tool,
+                        str_replace_editor_tool,
+                        generate_sub_module_documentation_tool,
+                    ],
+                    system_prompt=system_prompt,
+                ),
+                system_prompt,
             )
         else:
             system_prompt = self.config.prompts.build_leaf_system_prompt(
                 module_name, self.custom_instructions
             )
-            emit_trace_block(
-                self.config,
+            log_llm_content(
+                logger,
                 "AGENT SYSTEM PROMPT",
                 system_prompt,
+                prompt_type="module_generation",
                 model=agent_model_label(self.config),
-                label="module_generation",
                 context=module_name,
             )
-            return Agent[CodeWikiDeps, str](
-                self.fallback_models,
-                name=module_name,
-                deps_type=CodeWikiDeps,
-                tools=[read_code_components_tool, str_replace_editor_tool],
-                system_prompt=system_prompt,
+            return (
+                Agent[CodeWikiDeps, str](
+                    self.fallback_models,
+                    name=module_name,
+                    deps_type=CodeWikiDeps,
+                    tools=[read_code_components_tool, str_replace_editor_tool],
+                    system_prompt=system_prompt,
+                ),
+                system_prompt,
             )
 
     async def process_module(
@@ -127,7 +143,7 @@ class AgentOrchestrator:
         module_tree = file_manager.load_json(module_tree_path) or {}
 
         # Create agent
-        agent = self.create_agent(module_name, components, core_component_ids)
+        agent, system_prompt = self.create_agent(module_name, components, core_component_ids)
 
         # Create dependencies
         deps = CodeWikiDeps(
@@ -164,33 +180,57 @@ class AgentOrchestrator:
                 components=components,
                 module_tree=deps.module_tree,
             )
-            emit_trace_block(
-                self.config,
+            model_label = agent_model_label(self.config)
+            log_llm_content(
+                logger,
                 "AGENT USER PROMPT",
                 user_prompt,
-                model=agent_model_label(self.config),
-                label="module_generation",
+                prompt_type="module_generation",
+                model=model_label,
                 context=module_name,
             )
+            log_llm_summary(logger, "request", prompt_type="module_generation")
+            started_at = time.perf_counter()
             result = await agent.run(
                 user_prompt,
                 deps=deps,
             )
-            emit_trace_block(
-                self.config,
+            duration_ms = round((time.perf_counter() - started_at) * 1000)
+            log_llm_summary(
+                logger,
+                "response",
+                prompt_type="module_generation",
+                duration_ms=duration_ms,
+            )
+            log_llm_content(
+                logger,
                 "AGENT RESULT",
                 result.output,
-                model=agent_model_label(self.config),
-                label="module_generation",
+                prompt_type="module_generation",
+                model=model_label,
                 context=module_name,
             )
-            emit_json_trace_block(
-                self.config,
+            message_history, message_history_language = format_payload(result.new_messages_json())
+            log_llm_content(
+                logger,
                 "AGENT MESSAGE HISTORY",
-                result.new_messages_json(),
-                model=agent_model_label(self.config),
-                label="module_generation",
+                message_history,
+                prompt_type="module_generation",
+                model=model_label,
                 context=module_name,
+            )
+            write_llm_markdown_artifact(
+                self.config,
+                prompt_type="module_generation",
+                model=model_label,
+                context=module_name,
+                duration_ms=duration_ms,
+                sections=(
+                    ("System Prompt", system_prompt, "text"),
+                    ("User Prompt", user_prompt, "text"),
+                    ("Result", result.output, "markdown"),
+                    ("Message History", message_history, message_history_language),
+                ),
             )
 
             # Save updated module tree

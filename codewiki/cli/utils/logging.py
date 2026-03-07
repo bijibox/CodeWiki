@@ -12,7 +12,7 @@ from typing import Any, Optional
 from rich.console import Console
 from rich.logging import RichHandler
 
-MAX_VERBOSITY = 3
+MAX_VERBOSITY = 4
 LOGGER_NAME = "codewiki"
 
 
@@ -46,7 +46,7 @@ class VerbosityFilter(logging.Filter):
 
 
 class CodeWikiFormatter(logging.Formatter):
-    """Formatter for user-facing CLI and trace output."""
+    """Formatter for user-facing CLI and detailed LLM output."""
 
     def format(self, record: logging.LogRecord) -> str:
         event_type = getattr(record, "event_type", "message")
@@ -92,13 +92,25 @@ class CodeWikiFormatter(logging.Formatter):
             status = getattr(record, "status", "generated")
             suffix = f"... {status}" if status else ""
             return f"  [{current}/{total}] {module_type} {module_path}{suffix}"
-        if event_type == "trace":
-            lines = ["", f"===== {getattr(record, 'trace_title', 'TRACE')} ====="]
-            label = getattr(record, "trace_label", None)
-            context = getattr(record, "trace_context", None)
-            model = getattr(record, "trace_model", None)
-            if label:
-                lines.append(f"label: {label}")
+        if event_type == "llm_summary":
+            phase = getattr(record, "llm_phase", "request")
+            if phase == "request":
+                return (
+                    f"[{self._format_clock(record)}] "
+                    f"LLM request: type={getattr(record, 'llm_prompt_type', 'llm')}"
+                )
+            duration_ms = getattr(record, "llm_duration_ms", None)
+            duration_display = "unknown"
+            if duration_ms is not None:
+                duration_display = str(duration_ms)
+            return f"[{self._format_clock(record)}] LLM response: duration_ms={duration_display}"
+        if event_type == "llm_content":
+            lines = ["", f"===== {getattr(record, 'llm_title', 'LLM')} ====="]
+            prompt_type = getattr(record, "llm_prompt_type", None)
+            context = getattr(record, "llm_context", None)
+            model = getattr(record, "llm_model", None)
+            if prompt_type:
+                lines.append(f"type: {prompt_type}")
             if context:
                 lines.append(f"context: {context}")
             if model:

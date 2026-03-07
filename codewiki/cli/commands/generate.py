@@ -128,7 +128,7 @@ def validate_prompt_name(
     "--verbose",
     "-v",
     count=True,
-    help="Increase verbosity; repeat for -vv and -vvv",
+    help="Increase verbosity; repeat for -vv, -vvv, and -vvvv",
 )
 @click.option(
     "--max-tokens",
@@ -214,8 +214,12 @@ def generate_command(
     $ codewiki generate -vv
 
     \b
-    # Full prompt and response tracing
+    # Compact LLM request/response events
     $ codewiki generate -vvv
+
+    \b
+    # Full prompt and response logging
+    $ codewiki generate -vvvv
 
     \b
     # Override max tokens for this generation

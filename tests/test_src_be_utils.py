@@ -1,3 +1,4 @@
+import builtins
 from types import SimpleNamespace
 
 import pytest
@@ -103,3 +104,32 @@ async def test_validate_mermaid_diagrams_collects_errors(monkeypatch, tmp_path):
 
     assert result.startswith("Mermaid syntax errors found in file: docs.md")
     assert "Diagram 1: Parse error on line 3" in result
+
+
+@pytest.mark.asyncio
+async def test_validate_single_diagram_suppresses_mermaid_import_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    original_import = builtins.__import__
+
+    class FakeMermaidModule:
+        class Mermaid:
+            def __init__(self, diagram_content: str):
+                self.svg_response = SimpleNamespace(text="")
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "mermaid_parser.parser":
+            raise ImportError("parser unavailable")
+        if name == "mermaid":
+            print("Warning: IPython is not installed. Mermaidjs magic function is not available.")
+            return FakeMermaidModule()
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    result = await be_utils.validate_single_diagram("graph TD\nA --> B", 1, 1)
+
+    captured = capsys.readouterr()
+    assert result == ""
+    assert captured.out == ""

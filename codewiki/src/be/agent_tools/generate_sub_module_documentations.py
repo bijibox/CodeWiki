@@ -1,10 +1,18 @@
 from pydantic_ai import RunContext, Tool, Agent
+import time
 
+from codewiki.cli.utils.logging import configure_logging
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
 from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_tool
+from codewiki.src.be.llm_logging import (
+    format_payload,
+    log_llm_content,
+    log_llm_summary,
+    write_llm_markdown_artifact,
+)
 from codewiki.src.be.llm_services import create_fallback_models
-from codewiki.src.be.tracing import agent_model_label, emit_json_trace_block, emit_trace_block
+from codewiki.src.be.tracing import agent_model_label
 from codewiki.src.be.utils import is_complex_module, count_tokens
 from codewiki.src.be.cluster_modules import format_potential_core_components
 
@@ -23,6 +31,7 @@ async def generate_sub_module_documentation(
     """
 
     deps = ctx.deps
+    configure_logging(int(getattr(deps.config, "verbosity", 0)))
     previous_module_name = deps.current_module_name
 
     # Create fallback models from config
@@ -55,12 +64,12 @@ async def generate_sub_module_documentation(
             system_prompt = ctx.deps.config.prompts.build_system_prompt(
                 sub_module_name, ctx.deps.custom_instructions
             )
-            emit_trace_block(
-                ctx.deps.config,
+            log_llm_content(
+                logger,
                 "AGENT SYSTEM PROMPT",
                 system_prompt,
+                prompt_type="sub_module_generation",
                 model=agent_model_label(ctx.deps.config),
-                label="sub_module_generation",
                 context=sub_module_name,
             )
             sub_agent: Agent[CodeWikiDeps, str] = Agent(
@@ -78,12 +87,12 @@ async def generate_sub_module_documentation(
             system_prompt = ctx.deps.config.prompts.build_leaf_system_prompt(
                 sub_module_name, ctx.deps.custom_instructions
             )
-            emit_trace_block(
-                ctx.deps.config,
+            log_llm_content(
+                logger,
                 "AGENT SYSTEM PROMPT",
                 system_prompt,
+                prompt_type="sub_module_generation",
                 model=agent_model_label(ctx.deps.config),
-                label="sub_module_generation",
                 context=sub_module_name,
             )
             sub_agent = Agent[CodeWikiDeps, str](
@@ -106,33 +115,57 @@ async def generate_sub_module_documentation(
             components=ctx.deps.components,
             module_tree=ctx.deps.module_tree,
         )
-        emit_trace_block(
-            ctx.deps.config,
+        model_label = agent_model_label(ctx.deps.config)
+        log_llm_content(
+            logger,
             "AGENT USER PROMPT",
             user_prompt,
-            model=agent_model_label(ctx.deps.config),
-            label="sub_module_generation",
+            prompt_type="sub_module_generation",
+            model=model_label,
             context=sub_module_name,
         )
+        log_llm_summary(logger, "request", prompt_type="sub_module_generation")
+        started_at = time.perf_counter()
         result = await sub_agent.run(
             user_prompt,
             deps=ctx.deps,
         )
-        emit_trace_block(
-            ctx.deps.config,
+        duration_ms = round((time.perf_counter() - started_at) * 1000)
+        log_llm_summary(
+            logger,
+            "response",
+            prompt_type="sub_module_generation",
+            duration_ms=duration_ms,
+        )
+        log_llm_content(
+            logger,
             "AGENT RESULT",
             result.output,
-            model=agent_model_label(ctx.deps.config),
-            label="sub_module_generation",
+            prompt_type="sub_module_generation",
+            model=model_label,
             context=sub_module_name,
         )
-        emit_json_trace_block(
-            ctx.deps.config,
+        message_history, message_history_language = format_payload(result.new_messages_json())
+        log_llm_content(
+            logger,
             "AGENT MESSAGE HISTORY",
-            result.new_messages_json(),
-            model=agent_model_label(ctx.deps.config),
-            label="sub_module_generation",
+            message_history,
+            prompt_type="sub_module_generation",
+            model=model_label,
             context=sub_module_name,
+        )
+        write_llm_markdown_artifact(
+            ctx.deps.config,
+            prompt_type="sub_module_generation",
+            model=model_label,
+            context=sub_module_name,
+            duration_ms=duration_ms,
+            sections=(
+                ("System Prompt", system_prompt, "text"),
+                ("User Prompt", user_prompt, "text"),
+                ("Result", result.output, "markdown"),
+                ("Message History", message_history, message_history_language),
+            ),
         )
 
         # remove the sub-module name from the path to current module and the module tree

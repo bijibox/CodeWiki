@@ -78,8 +78,8 @@ def cluster_modules(
         prompt,
         config,
         model=config.cluster_model,
-        trace_label="cluster_modules",
-        trace_context=current_module_name or "<repository>",
+        prompt_type="cluster_modules",
+        context=current_module_name or "<repository>",
     )
 
     # parse the response

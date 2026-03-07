@@ -108,12 +108,12 @@ class ProgressTracker:
 
     def _format_elapsed(self) -> str:
         elapsed = time.time() - self.start_time
-        minutes = int(elapsed // 60)
-        seconds = int(elapsed % 60)
+        elapsed_ms = max(0, round(elapsed * 1000))
+        minutes = elapsed_ms // 60000
+        seconds = (elapsed_ms % 60000) // 1000
+        tenths = (elapsed_ms % 1000) // 100
 
-        if minutes > 0:
-            return f"{minutes:02d}:{seconds:02d}"
-        return f"00:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}.{tenths}"
 
     def get_eta(self) -> Optional[str]:
         elapsed = time.time() - self.start_time

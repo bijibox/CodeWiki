@@ -121,7 +121,7 @@ def test_generate_command_passes_verbosity_levels(monkeypatch: MonkeyPatch, tmp_
     assert captured["verbosity"] == 3
 
 
-def test_generate_command_caps_verbosity_at_three(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_generate_command_caps_verbosity_at_four(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, Any] = {}
 
     class FakeGenerator:
@@ -157,10 +157,11 @@ def test_generate_command_caps_verbosity_at_three(monkeypatch: MonkeyPatch, tmp_
     monkeypatch.setattr("codewiki.cli.commands.generate.CLIDocumentationGenerator", FakeGenerator)
 
     runner = CliRunner()
-    result = runner.invoke(generate_command, ["-vvvv"])
+    output_dir = tmp_path / "docs"
+    result = runner.invoke(generate_command, ["-vvvv", "--output", str(output_dir)])
 
     assert result.exit_code == 0, result.output
-    assert captured["verbosity"] == 3
+    assert captured["verbosity"] == 4
 
 
 def test_generate_command_rejects_unknown_prompt_name():

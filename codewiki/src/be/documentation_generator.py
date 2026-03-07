@@ -302,8 +302,8 @@ class DocumentationGenerator:
             parent_docs = call_llm(
                 prompt,
                 self.config,
-                trace_label="module_overview" if len(module_path) >= 1 else "repo_overview",
-                trace_context=module_name,
+                prompt_type="module_overview" if len(module_path) >= 1 else "repo_overview",
+                context=module_name,
             )
 
             # Parse and save parent documentation

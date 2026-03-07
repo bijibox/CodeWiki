@@ -2,14 +2,26 @@
 LLM service factory for creating configured LLM clients.
 """
 
-from codewiki.src.be.tracing import emit_trace_block
+from __future__ import annotations
+
+import logging
+import time
+
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.openai import OpenAIModelSettings
 from pydantic_ai.models.fallback import FallbackModel
 from openai import OpenAI
 
+from codewiki.cli.utils.logging import configure_logging
+from codewiki.src.be.llm_logging import (
+    log_llm_content,
+    log_llm_summary,
+    write_llm_markdown_artifact,
+)
 from codewiki.src.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 def create_main_model(config: Config) -> OpenAIModel:
@@ -47,8 +59,8 @@ def call_llm(
     config: Config,
     model: str | None = None,
     temperature: float = 0.0,
-    trace_label: str | None = None,
-    trace_context: str | None = None,
+    prompt_type: str | None = None,
+    context: str | None = None,
 ) -> str:
     """
     Call LLM with the given prompt.
@@ -58,8 +70,8 @@ def call_llm(
         config: Configuration containing LLM settings
         model: Model name (defaults to config.main_model)
         temperature: Temperature setting
-        trace_label: Optional trace label for verbose output
-        trace_context: Optional trace context for verbose output
+        prompt_type: Optional prompt type for logging and artifacts
+        context: Optional prompt context for logging and artifacts
 
     Returns:
         LLM response text
@@ -67,31 +79,48 @@ def call_llm(
     if model is None:
         model = config.main_model
 
-    emit_trace_block(
-        config,
+    configure_logging(int(getattr(config, "verbosity", 0)))
+    log_llm_summary(logger, "request", prompt_type=prompt_type)
+    log_llm_content(
+        logger,
         "LLM REQUEST",
         prompt,
+        prompt_type=prompt_type,
         model=model,
-        label=trace_label,
-        context=trace_context,
+        context=context,
     )
 
     client = create_openai_client(config)
+    started_at = time.perf_counter()
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=temperature,
         max_tokens=config.max_tokens,
     )
+    duration_ms = round((time.perf_counter() - started_at) * 1000)
     content = response.choices[0].message.content
     if content is None:
         raise RuntimeError("LLM response did not include message content")
-    emit_trace_block(
-        config,
+
+    log_llm_summary(logger, "response", prompt_type=prompt_type, duration_ms=duration_ms)
+    log_llm_content(
+        logger,
         "LLM RESPONSE",
         content,
+        prompt_type=prompt_type,
         model=model,
-        label=trace_label,
-        context=trace_context,
+        context=context,
+    )
+    write_llm_markdown_artifact(
+        config,
+        prompt_type=prompt_type,
+        model=model,
+        context=context,
+        duration_ms=duration_ms,
+        sections=(
+            ("Request", prompt, "text"),
+            ("Response", content, "markdown"),
+        ),
     )
     return content
