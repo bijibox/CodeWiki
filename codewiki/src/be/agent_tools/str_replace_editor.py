@@ -11,7 +11,6 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Tuple, cast
-import io
 
 import logging
 
@@ -23,11 +22,6 @@ from pydantic_ai import RunContext, Tool
 
 from .deps import CodeWikiDeps
 from ..utils import validate_mermaid_diagrams
-
-# There are some super strange "ascii can't decode x" errors,
-# that can be solved with setting the default encoding for stdout
-# (note that python3.6 doesn't have the reconfigure method)
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 TRUNCATED_MESSAGE: str = (
     "<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>"
@@ -59,6 +53,16 @@ In addition to the above errors, please also check the following:
 
 Edit the file again if necessary.
 """
+
+
+def _ensure_utf8_stdout() -> None:
+    """Best-effort stdout encoding setup without import-time stream replacement."""
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8")
+        except ValueError:
+            logger.debug("stdout could not be reconfigured to utf-8")
 
 
 def maybe_truncate(content: str, truncate_after: Optional[int] = MAX_RESPONSE_LEN):
@@ -812,6 +816,7 @@ async def str_replace_editor(
         old_str: Required parameter of `str_replace` command containing the string in `path` to replace.
         new_str: Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.
     """
+    _ensure_utf8_stdout()
 
     # Handle both `path` and `file` parameters for model compatibility
     if path is None and file is None:

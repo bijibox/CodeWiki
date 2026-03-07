@@ -31,6 +31,7 @@ from codewiki.cli.adapters.doc_generator import CLIDocumentationGenerator
 from codewiki.cli.utils.instructions import display_post_generation_instructions
 from codewiki.cli.models.job import GenerationOptions
 from codewiki.cli.models.config import AgentInstructions
+from codewiki.src.be.prompt_template import DEFAULT_PROMPT_NAME, available_prompt_names
 
 
 def parse_patterns(patterns_str: str) -> list[str]:
@@ -38,6 +39,24 @@ def parse_patterns(patterns_str: str) -> list[str]:
     if not patterns_str:
         return []
     return [p.strip() for p in patterns_str.split(",") if p.strip()]
+
+
+def validate_prompt_name(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    """Validate that the selected prompt set exists."""
+    if value is None:
+        return value
+
+    available = available_prompt_names()
+    if value not in available:
+        available_display = ", ".join(available) or "<none>"
+        raise click.BadParameter(
+            f"Unknown prompt set '{value}'. Available prompt sets: {available_display}",
+            ctx=ctx,
+            param=param,
+        )
+    return value
 
 
 @click.command(name="generate")
@@ -98,6 +117,14 @@ def parse_patterns(patterns_str: str) -> list[str]:
     help="Custom instructions for the documentation agent",
 )
 @click.option(
+    "--prompt-name",
+    type=str,
+    default=DEFAULT_PROMPT_NAME,
+    callback=validate_prompt_name,
+    show_default=True,
+    help="Prompt template set to use",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -139,6 +166,7 @@ def generate_command(
     focus: Optional[str],
     doc_type: Optional[str],
     instructions: Optional[str],
+    prompt_name: str,
     verbose: bool,
     max_tokens: Optional[int],
     max_token_per_module: Optional[int],
@@ -176,6 +204,10 @@ def generate_command(
     \b
     # Custom instructions
     $ codewiki generate --instructions "Focus on public APIs and include usage examples"
+
+    \b
+    # Select prompt template set
+    $ codewiki generate --prompt-name en
 
     \b
     # Override max tokens for this generation
@@ -321,6 +353,7 @@ def generate_command(
                     logger.debug(f"Doc type: {doc_type}")
                 if instructions:
                     logger.debug(f"Custom instructions: {instructions}")
+                logger.debug(f"Prompt set: {prompt_name}")
 
         # Log max token settings if verbose
         if verbose:
@@ -372,6 +405,7 @@ def generate_command(
                 "base_url": config.base_url,
                 "api_key": api_key,
                 "agent_instructions": agent_instructions_dict,
+                "prompt_name": prompt_name,
                 # Max token settings (runtime overrides take precedence)
                 "max_tokens": max_tokens if max_tokens is not None else config.max_tokens,
                 "max_token_per_module": (

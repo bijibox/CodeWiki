@@ -1,6 +1,7 @@
 from argparse import Namespace
 
 from codewiki.src.config import Config, is_cli_context, set_cli_context
+from codewiki.src.be.prompt_template import PromptBuilder
 
 
 def test_cli_context_flag_can_be_toggled():
@@ -36,6 +37,8 @@ def test_config_properties_and_prompt_addition_are_derived_from_agent_instructio
     assert config.focus_modules == ["src/core", "src/api"]
     assert config.doc_type == "architecture"
     assert config.custom_instructions == "Mention public APIs."
+    assert config.prompt_name == "en"
+    assert isinstance(config.prompts, PromptBuilder)
 
     prompt_addition = config.get_prompt_addition()
     assert "Focus on architecture documentation" in prompt_addition
@@ -68,6 +71,8 @@ def test_config_from_args_builds_default_output_paths():
     assert config.output_dir == "output"
     assert config.dependency_graph_dir == "output/dependency_graphs"
     assert config.docs_dir == "output/docs/my_repo_name-docs"
+    assert config.prompt_name == "en"
+    assert isinstance(config.prompts, PromptBuilder)
 
 
 def test_config_from_cli_uses_temp_output_and_runtime_overrides():
@@ -84,6 +89,7 @@ def test_config_from_cli_uses_temp_output_and_runtime_overrides():
         max_token_per_leaf_module=1024,
         max_depth=4,
         agent_instructions={"doc_type": "developer"},
+        prompt_name="en",
     )
 
     assert config.output_dir == "/tmp/generated-docs/temp"
@@ -94,3 +100,5 @@ def test_config_from_cli_uses_temp_output_and_runtime_overrides():
     assert config.max_token_per_leaf_module == 1024
     assert config.max_depth == 4
     assert config.doc_type == "developer"
+    assert config.prompt_name == "en"
+    assert isinstance(config.prompts, PromptBuilder)

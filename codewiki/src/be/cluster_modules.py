@@ -9,7 +9,6 @@ from codewiki.src.be.dependency_analyzer.models.core import Node
 from codewiki.src.be.llm_services import call_llm
 from codewiki.src.be.utils import count_tokens
 from codewiki.src.config import Config
-from codewiki.src.be.prompt_template import format_cluster_prompt
 
 
 def format_potential_core_components(
@@ -70,8 +69,10 @@ def cluster_modules(
         )
         return {}
 
-    prompt = format_cluster_prompt(
-        potential_core_components, current_module_tree, current_module_name
+    prompt = config.prompts.build_cluster_prompt(
+        potential_core_components,
+        current_module_tree,
+        current_module_name,
     )
     response = call_llm(prompt, config, model=config.cluster_model)
 

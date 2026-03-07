@@ -1,219 +1,248 @@
-SYSTEM_PROMPT = """
-<ROLE>
-You are an AI documentation assistant. Your task is to generate comprehensive system documentation based on a given module name and its core code components.
-</ROLE>
+from dataclasses import dataclass
+from importlib import resources
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Protocol
 
-<OBJECTIVES>
-Create documentation that helps developers and maintainers understand:
-1. The module's purpose and core functionality
-2. Architecture and component relationships
-3. How the module fits into the overall system
-</OBJECTIVES>
-
-<DOCUMENTATION_STRUCTURE>
-Generate documentation following this structure:
-
-1. **Main Documentation File** (`{module_name}.md`):
-   - Brief introduction and purpose
-   - Architecture overview with diagrams
-   - High-level functionality of each sub-module including references to its documentation file
-   - Link to other module documentation instead of duplicating information
-
-2. **Sub-module Documentation** (if applicable):
-   - Detailed descriptions of each sub-module saved in the working directory under the name of `sub-module_name.md`
-   - Core components and their responsibilities
-
-3. **Visual Documentation**:
-   - Mermaid diagrams for architecture, dependencies, and data flow
-   - Component interaction diagrams
-   - Process flow diagrams where relevant
-</DOCUMENTATION_STRUCTURE>
-
-<WORKFLOW>
-1. Analyze the provided code components and module structure, explore the not given dependencies between the components if needed
-2. Create the main `{module_name}.md` file with overview and architecture in working directory
-3. Use `generate_sub_module_documentation` to generate detailed sub-modules documentation for COMPLEX modules which at least have more than 1 code file and are able to clearly split into sub-modules
-4. Include relevant Mermaid diagrams throughout the documentation
-5. After all sub-modules are documented, adjust `{module_name}.md` with ONLY ONE STEP to ensure all generated files including sub-modules documentation are properly cross-refered
-</WORKFLOW>
-
-<AVAILABLE_TOOLS>
-- `str_replace_editor`: File system operations for creating and editing documentation files
-- `read_code_components`: Explore additional code dependencies not included in the provided components
-- `generate_sub_module_documentation`: Generate detailed documentation for individual sub-modules via sub-agents
-</AVAILABLE_TOOLS>
-{custom_instructions}
-""".strip()
-
-LEAF_SYSTEM_PROMPT = """
-<ROLE>
-You are an AI documentation assistant. Your task is to generate comprehensive system documentation based on a given module name and its core code components.
-</ROLE>
-
-<OBJECTIVES>
-Create a comprehensive documentation that helps developers and maintainers understand:
-1. The module's purpose and core functionality
-2. Architecture and component relationships
-3. How the module fits into the overall system
-</OBJECTIVES>
-
-<DOCUMENTATION_REQUIREMENTS>
-Generate documentation following the following requirements:
-1. Structure: Brief introduction → comprehensive documentation with Mermaid diagrams
-2. Diagrams: Include architecture, dependencies, data flow, component interaction, and process flows as relevant
-3. References: Link to other module documentation instead of duplicating information
-</DOCUMENTATION_REQUIREMENTS>
-
-<WORKFLOW>
-1. Analyze provided code components and module structure
-2. Explore dependencies between components if needed
-3. Generate complete {module_name}.md documentation file
-</WORKFLOW>
-
-<AVAILABLE_TOOLS>
-- `str_replace_editor`: File system operations for creating and editing documentation files
-- `read_code_components`: Explore additional code dependencies not included in the provided components
-</AVAILABLE_TOOLS>
-{custom_instructions}
-""".strip()
-
-USER_PROMPT = """
-Generate comprehensive documentation for the {module_name} module using the provided module tree and core components.
-
-<MODULE_TREE>
-{module_tree}
-</MODULE_TREE>
-* NOTE: You can refer the other modules in the module tree based on the dependencies between their core components to make the documentation more structured and avoid repeating the same information. Know that all documentation files are saved in the same folder not structured as module tree. e.g. [alt text]([ref_module_name].md)
-
-<CORE_COMPONENT_CODES>
-{formatted_core_component_codes}
-</CORE_COMPONENT_CODES>
-""".strip()
-
-REPO_OVERVIEW_PROMPT = """
-You are an AI documentation assistant. Your task is to generate a brief overview of the {repo_name} repository.
-
-The overview should be a brief documentation of the repository, including:
-- The purpose of the repository
-- The end-to-end architecture of the repository visualized by mermaid diagrams
-- The references to the core modules documentation
-
-Provide `{repo_name}` repo structure and its core modules documentation:
-<REPO_STRUCTURE>
-{repo_structure}
-</REPO_STRUCTURE>
-
-Please generate the overview of the `{repo_name}` repository in markdown format with the following structure:
-<OVERVIEW>
-overview_content
-</OVERVIEW>
-""".strip()
-
-MODULE_OVERVIEW_PROMPT = """
-You are an AI documentation assistant. Your task is to generate a brief overview of `{module_name}` module.
-
-The overview should be a brief documentation of the module, including:
-- The purpose of the module
-- The architecture of the module visualized by mermaid diagrams
-- The references to the core components documentation
-
-Provide repo structure and core components documentation of the `{module_name}` module:
-<REPO_STRUCTURE>
-{repo_structure}
-</REPO_STRUCTURE>
-
-Please generate the overview of the `{module_name}` module in markdown format with the following structure:
-<OVERVIEW>
-overview_content
-</OVERVIEW>
-""".strip()
-
-CLUSTER_REPO_PROMPT = """
-Here is list of all potential core components of the repository (It's normal that some components are not essential to the repository):
-<POTENTIAL_CORE_COMPONENTS>
-{potential_core_components}
-</POTENTIAL_CORE_COMPONENTS>
-
-Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a module. DO NOT include components that are not essential to the repository.
-Firstly reason about the components and then group them and return the result in the following format:
-<GROUPED_COMPONENTS>
-{{
-    "module_name_1": {{
-        "path": <path_to_the_module_1>, # the path to the module can be file or directory
-        "components": [
-            <component_name_1>,
-            <component_name_2>,
-            ...
-        ]
-    }},
-    "module_name_2": {{
-        "path": <path_to_the_module_2>,
-        "components": [
-            <component_name_1>,
-            <component_name_2>,
-            ...
-        ]
-    }},
-    ...
-}}
-</GROUPED_COMPONENTS>
-""".strip()
-
-CLUSTER_MODULE_PROMPT = """
-Here is the module tree of a repository:
-
-<MODULE_TREE>
-{module_tree}
-</MODULE_TREE>
-
-Here is list of all potential core components of the module {module_name} (It's normal that some components are not essential to the module):
-<POTENTIAL_CORE_COMPONENTS>
-{potential_core_components}
-</POTENTIAL_CORE_COMPONENTS>
-
-Please group the components into groups such that each group is a set of components that are closely related to each other and together they form a smaller module. DO NOT include components that are not essential to the module.
-
-Firstly reason based on given context and then group them and return the result in the following format:
-<GROUPED_COMPONENTS>
-{{
-    "module_name_1": {{
-        "path": <path_to_the_module_1>, # the path to the module can be file or directory
-        "components": [
-            <component_name_1>,
-            <component_name_2>,
-            ...
-        ]
-    }},
-    "module_name_2": {{
-        "path": <path_to_the_module_2>,
-        "components": [
-            <component_name_1>,
-            <component_name_2>,
-            ...
-        ]
-    }},
-    ...
-}}
-</GROUPED_COMPONENTS>
-""".strip()
-
-FILTER_FOLDERS_PROMPT = """
-Here is the list of relative paths of files, folders in 2-depth of project {project_name}:
-```
-{files}
-```
-
-In order to analyze the core functionality of the project, we need to analyze the files, folders representing the core functionality of the project.
-
-Please shortlist the files, folders representing the core functionality and ignore the files, folders that are not essential to the core functionality of the project (e.g. test files, documentation files, etc.) from the list above.
-
-Reasoning at first, then return the list of relative paths in JSON format.
-"""
-
-from typing import Any, Dict
-
-from codewiki.src.be.dependency_analyzer.models.core import Node
 from codewiki.src.utils import file_manager
+
+if TYPE_CHECKING:
+    from codewiki.src.be.dependency_analyzer.models.core import Node
+
+DEFAULT_PROMPT_NAME = "en"
+PROMPTS_PACKAGE = "codewiki"
+PROMPTS_BASE_PATH = ("templates", "prompts")
+PROMPT_FILE_MAP = {
+    "system_prompt": "system_prompt.md",
+    "leaf_system_prompt": "leaf_system_prompt.md",
+    "user_prompt": "user_prompt.md",
+    "repo_overview_prompt": "repo_overview_prompt.md",
+    "module_overview_prompt": "module_overview_prompt.md",
+    "cluster_repo_prompt": "cluster_repo_prompt.md",
+    "cluster_module_prompt": "cluster_module_prompt.md",
+    "filter_folders_prompt": "filter_folders_prompt.md",
+}
+
+
+class PromptTemplateError(ValueError):
+    """Raised when prompt templates cannot be loaded or are incomplete."""
+
+
+class PromptTemplateSet(Protocol):
+    """Raw template strings loaded from a prompt set."""
+
+    @property
+    def prompt_name(self) -> str: ...
+
+    @property
+    def system_prompt(self) -> str: ...
+
+    @property
+    def leaf_system_prompt(self) -> str: ...
+
+    @property
+    def user_prompt(self) -> str: ...
+
+    @property
+    def repo_overview_prompt(self) -> str: ...
+
+    @property
+    def module_overview_prompt(self) -> str: ...
+
+    @property
+    def cluster_repo_prompt(self) -> str: ...
+
+    @property
+    def cluster_module_prompt(self) -> str: ...
+
+    @property
+    def filter_folders_prompt(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class FilePromptTemplateSet:
+    """Prompt template set loaded from package resources."""
+
+    prompt_name: str
+    system_prompt: str
+    leaf_system_prompt: str
+    user_prompt: str
+    repo_overview_prompt: str
+    module_overview_prompt: str
+    cluster_repo_prompt: str
+    cluster_module_prompt: str
+    filter_folders_prompt: str
+
+    @classmethod
+    def from_name(cls, prompt_name: str) -> "FilePromptTemplateSet":
+        prompt_dir = _prompts_base_dir().joinpath(prompt_name)
+        if not prompt_dir.is_dir():
+            available = ", ".join(available_prompt_names()) or "<none>"
+            raise PromptTemplateError(
+                f"Unknown prompt set '{prompt_name}'. Available prompt sets: {available}"
+            )
+        return cls.from_directory(prompt_name, prompt_dir)
+
+    @classmethod
+    def from_directory(cls, prompt_name: str, prompt_dir: Any) -> "FilePromptTemplateSet":
+        missing_files = [
+            filename
+            for filename in PROMPT_FILE_MAP.values()
+            if not prompt_dir.joinpath(filename).is_file()
+        ]
+        if missing_files:
+            missing = ", ".join(sorted(missing_files))
+            raise PromptTemplateError(
+                f"Prompt set '{prompt_name}' is missing required prompt files: {missing}"
+            )
+
+        prompt_values = {
+            attr_name: prompt_dir.joinpath(filename).read_text(encoding="utf-8").strip()
+            for attr_name, filename in PROMPT_FILE_MAP.items()
+        }
+        return cls(prompt_name=prompt_name, **prompt_values)
+
+
+@dataclass(frozen=True)
+class PromptBuilder:
+    """Runtime helper that builds all prompts from a loaded template set."""
+
+    templates: PromptTemplateSet
+
+    @property
+    def prompt_name(self) -> str:
+        return self.templates.prompt_name
+
+    def build_user_prompt(
+        self,
+        module_name: str,
+        core_component_ids: list[str],
+        components: Dict[str, "Node"],
+        module_tree: "ModuleTree",
+    ) -> str:
+        return self.templates.user_prompt.format(
+            module_name=module_name,
+            formatted_core_component_codes=self._format_core_component_codes(
+                core_component_ids, components
+            ),
+            module_tree=self._format_module_tree(module_tree, module_name),
+        )
+
+    def build_cluster_prompt(
+        self,
+        potential_core_components: str,
+        module_tree: "ModuleTree | None" = None,
+        module_name: str | None = None,
+    ) -> str:
+        current_module_tree = module_tree or {}
+        if not current_module_tree:
+            return self.templates.cluster_repo_prompt.format(
+                potential_core_components=potential_core_components
+            )
+        return self.templates.cluster_module_prompt.format(
+            potential_core_components=potential_core_components,
+            module_tree=self._format_module_tree(current_module_tree, module_name),
+            module_name=module_name,
+        )
+
+    def build_system_prompt(self, module_name: str, custom_instructions: str | None = None) -> str:
+        return self.templates.system_prompt.format(
+            module_name=module_name,
+            custom_instructions=self._build_custom_instruction_section(custom_instructions),
+        ).strip()
+
+    def build_leaf_system_prompt(
+        self, module_name: str, custom_instructions: str | None = None
+    ) -> str:
+        return self.templates.leaf_system_prompt.format(
+            module_name=module_name,
+            custom_instructions=self._build_custom_instruction_section(custom_instructions),
+        ).strip()
+
+    def build_repo_overview_prompt(self, repo_name: str, repo_structure: str) -> str:
+        return self.templates.repo_overview_prompt.format(
+            repo_name=repo_name,
+            repo_structure=repo_structure,
+        )
+
+    def build_module_overview_prompt(self, module_name: str, repo_structure: str) -> str:
+        return self.templates.module_overview_prompt.format(
+            module_name=module_name,
+            repo_structure=repo_structure,
+        )
+
+    def build_filter_folders_prompt(self, project_name: str, files: str) -> str:
+        return self.templates.filter_folders_prompt.format(
+            project_name=project_name,
+            files=files,
+        )
+
+    def _format_module_tree(
+        self, module_tree: "ModuleTree", current_module_name: str | None = None
+    ) -> str:
+        lines: list[str] = []
+
+        def _walk(tree: ModuleTree, indent: int = 0) -> None:
+            for key, value in tree.items():
+                suffix = " (current module)" if key == current_module_name else ""
+                lines.append(f"{'  ' * indent}{key}{suffix}")
+                lines.append(
+                    f"{'  ' * (indent + 1)} Core components: {', '.join(value['components'])}"
+                )
+                if isinstance(value.get("children"), dict) and value["children"]:
+                    lines.append(f"{'  ' * (indent + 1)} Children:")
+                    _walk(value["children"], indent + 2)
+
+        _walk(module_tree, 0)
+        return "\n".join(lines)
+
+    def _format_core_component_codes(
+        self, core_component_ids: list[str], components: Dict[str, "Node"]
+    ) -> str:
+        grouped_components: dict[str, list[str]] = {}
+        for component_id in core_component_ids:
+            if component_id not in components:
+                continue
+            component = components[component_id]
+            grouped_components.setdefault(component.relative_path, []).append(component_id)
+
+        sections: list[str] = []
+        for path, component_ids_in_file in grouped_components.items():
+            sections.append(f"# File: {path}\n")
+            sections.append("## Core Components in this file:\n")
+
+            for component_id in component_ids_in_file:
+                sections.append(f"- {component_id}\n")
+
+            extension = Path(path).suffix
+            language = EXTENSION_TO_LANGUAGE.get(extension, "")
+            sections.append(f"\n## File Content:\n```{language}\n")
+
+            try:
+                sections.append(
+                    file_manager.load_text(components[component_ids_in_file[0]].file_path)
+                )
+            except (FileNotFoundError, IOError) as e:
+                sections.append(f"# Error reading file: {e}\n")
+
+            sections.append("```\n\n")
+
+        return "".join(sections)
+
+    def _build_custom_instruction_section(self, custom_instructions: str | None) -> str:
+        if not custom_instructions:
+            return ""
+        return f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+
+
+def _prompts_base_dir():
+    return resources.files(PROMPTS_PACKAGE).joinpath(*PROMPTS_BASE_PATH)
+
+
+def available_prompt_names() -> list[str]:
+    prompts_dir = _prompts_base_dir()
+    if not prompts_dir.is_dir():
+        return []
+    return sorted(entry.name for entry in prompts_dir.iterdir() if entry.is_dir())
 
 EXTENSION_TO_LANGUAGE = {
     ".py": "python",
@@ -245,162 +274,3 @@ EXTENSION_TO_LANGUAGE = {
 
 ModuleEntry = dict[str, Any]
 ModuleTree = dict[str, ModuleEntry]
-
-
-def format_user_prompt(
-    module_name: str,
-    core_component_ids: list[str],
-    components: Dict[str, Node],
-    module_tree: ModuleTree,
-) -> str:
-    """
-    Format the user prompt with module name and organized core component codes.
-
-    Args:
-        module_name: Name of the module to document
-        core_component_ids: List of component IDs to include
-        components: Dictionary mapping component IDs to CodeComponent objects
-
-    Returns:
-        Formatted user prompt string
-    """
-
-    # format module tree
-    lines: list[str] = []
-
-    def _format_module_tree(current_module_tree: ModuleTree, indent: int = 0) -> None:
-        for key, value in current_module_tree.items():
-            if key == module_name:
-                lines.append(f"{'  ' * indent}{key} (current module)")
-            else:
-                lines.append(f"{'  ' * indent}{key}")
-
-            lines.append(f"{'  ' * (indent + 1)} Core components: {', '.join(value['components'])}")
-            if isinstance(value["children"], dict) and len(value["children"]) > 0:
-                lines.append(f"{'  ' * (indent + 1)} Children:")
-                _format_module_tree(value["children"], indent + 2)
-
-    _format_module_tree(module_tree, 0)
-    formatted_module_tree = "\n".join(lines)
-
-    # print(f"Formatted module tree:\n{formatted_module_tree}")
-
-    # Group core component IDs by their file path
-    grouped_components: dict[str, list[str]] = {}
-    for component_id in core_component_ids:
-        if component_id not in components:
-            continue
-        component = components[component_id]
-        path = component.relative_path
-        if path not in grouped_components:
-            grouped_components[path] = []
-        grouped_components[path].append(component_id)
-
-    core_component_codes = ""
-    for path, component_ids_in_file in grouped_components.items():
-        core_component_codes += f"# File: {path}\n\n"
-        core_component_codes += f"## Core Components in this file:\n"
-
-        for component_id in component_ids_in_file:
-            core_component_codes += f"- {component_id}\n"
-
-        core_component_codes += (
-            f"\n## File Content:\n```{EXTENSION_TO_LANGUAGE['.'+path.split('.')[-1]]}\n"
-        )
-
-        # Read content of the file using the first component's file path
-        try:
-            core_component_codes += file_manager.load_text(
-                components[component_ids_in_file[0]].file_path
-            )
-        except (FileNotFoundError, IOError) as e:
-            core_component_codes += f"# Error reading file: {e}\n"
-
-        core_component_codes += "```\n\n"
-
-    return USER_PROMPT.format(
-        module_name=module_name,
-        formatted_core_component_codes=core_component_codes,
-        module_tree=formatted_module_tree,
-    )
-
-
-def format_cluster_prompt(
-    potential_core_components: str,
-    module_tree: ModuleTree | None = None,
-    module_name: str | None = None,
-) -> str:
-    """
-    Format the cluster prompt with potential core components and module tree.
-    """
-
-    # format module tree
-    lines: list[str] = []
-    current_module_tree = module_tree or {}
-
-    # print(f"Module tree:\n{json.dumps(module_tree, indent=2)}")
-
-    def _format_module_tree(tree: ModuleTree, indent: int = 0) -> None:
-        for key, value in tree.items():
-            if key == module_name:
-                lines.append(f"{'  ' * indent}{key} (current module)")
-            else:
-                lines.append(f"{'  ' * indent}{key}")
-
-            lines.append(f"{'  ' * (indent + 1)} Core components: {', '.join(value['components'])}")
-            if (
-                ("children" in value)
-                and isinstance(value["children"], dict)
-                and len(value["children"]) > 0
-            ):
-                lines.append(f"{'  ' * (indent + 1)} Children:")
-                _format_module_tree(value["children"], indent + 2)
-
-    _format_module_tree(current_module_tree, 0)
-    formatted_module_tree = "\n".join(lines)
-
-    if not current_module_tree:
-        return CLUSTER_REPO_PROMPT.format(potential_core_components=potential_core_components)
-    return CLUSTER_MODULE_PROMPT.format(
-        potential_core_components=potential_core_components,
-        module_tree=formatted_module_tree,
-        module_name=module_name,
-    )
-
-
-def format_system_prompt(module_name: str, custom_instructions: str | None = None) -> str:
-    """
-    Format the system prompt with module name and optional custom instructions.
-
-    Args:
-        module_name: Name of the module to document
-        custom_instructions: Optional custom instructions to append
-
-    Returns:
-        Formatted system prompt string
-    """
-    custom_section = ""
-    if custom_instructions:
-        custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
-
-    return SYSTEM_PROMPT.format(module_name=module_name, custom_instructions=custom_section).strip()
-
-
-def format_leaf_system_prompt(module_name: str, custom_instructions: str | None = None) -> str:
-    """
-    Format the leaf system prompt with module name and optional custom instructions.
-
-    Args:
-        module_name: Name of the module to document
-        custom_instructions: Optional custom instructions to append
-
-    Returns:
-        Formatted leaf system prompt string
-    """
-    custom_section = ""
-    if custom_instructions:
-        custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
-
-    return LEAF_SYSTEM_PROMPT.format(
-        module_name=module_name, custom_instructions=custom_section
-    ).strip()
