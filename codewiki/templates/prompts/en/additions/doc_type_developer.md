@@ -1,0 +1,1 @@
+- Focus on developer documentation: code structure, contribution guidelines, and implementation details.

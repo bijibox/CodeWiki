@@ -14,6 +14,7 @@ Generate documentation following the following requirements:
 1. Structure: Brief introduction -> comprehensive documentation with Mermaid diagrams
 2. Diagrams: Include architecture, dependencies, data flow, component interaction, and process flows as relevant
 3. References: Link to other module documentation instead of duplicating information
+4. Language: Write all natural-language documentation in English; do not translate code identifiers, file names, paths, class/function names, CLI/API commands, or other literal/code tokens
 </DOCUMENTATION_REQUIREMENTS>
 
 <WORKFLOW>

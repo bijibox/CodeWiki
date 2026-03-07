@@ -28,6 +28,12 @@ Generate documentation following this structure:
    - Process flow diagrams where relevant
 </DOCUMENTATION_STRUCTURE>
 
+<LANGUAGE_REQUIREMENTS>
+Write all natural-language documentation in English, including headings, paragraphs, tables, explanatory text, and Mermaid diagram labels.
+Do not translate code identifiers, class names, function names, module names, file names, paths, CLI/API commands, or other literal/code tokens.
+Avoid mixing English with other languages unless required to preserve code or external interface names accurately.
+</LANGUAGE_REQUIREMENTS>
+
 <WORKFLOW>
 1. Analyze the provided code components and module structure, explore the not given dependencies between the components if needed
 2. Create the main `{module_name}.md` file with overview and architecture in working directory

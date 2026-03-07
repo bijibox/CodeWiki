@@ -41,6 +41,7 @@ def test_config_properties_and_prompt_addition_are_derived_from_agent_instructio
     assert isinstance(config.prompts, PromptBuilder)
 
     prompt_addition = config.get_prompt_addition()
+    assert "Apply the following additional instructions:" in prompt_addition
     assert "Focus on architecture documentation" in prompt_addition
     assert "src/core, src/api" in prompt_addition
     assert "Mention public APIs." in prompt_addition
@@ -60,7 +61,37 @@ def test_config_get_prompt_addition_handles_unknown_doc_type():
         agent_instructions={"doc_type": "internal-runbook"},
     )
 
-    assert config.get_prompt_addition() == "Focus on generating internal-runbook documentation."
+    assert config.get_prompt_addition() == (
+        "Apply the following additional instructions:\n"
+        "- Focus on generating internal-runbook documentation."
+    )
+
+
+def test_config_get_prompt_addition_uses_prompt_set_localization():
+    config = Config(
+        repo_path="/tmp/project",
+        output_dir="output",
+        dependency_graph_dir="output/dependency_graphs",
+        docs_dir="output/docs/project-docs",
+        max_depth=2,
+        llm_base_url="https://example.com",
+        llm_api_key="secret",
+        main_model="main-model",
+        cluster_model="cluster-model",
+        agent_instructions={
+            "doc_type": "developer",
+            "focus_modules": ["src/core"],
+            "custom_instructions": "Укажи ограничения.",
+        },
+        prompt_name="ru",
+    )
+
+    prompt_addition = config.get_prompt_addition()
+
+    assert "Соблюдайте следующие дополнительные указания:" in prompt_addition
+    assert "Сфокусируйтесь на документации для разработчиков" in prompt_addition
+    assert "src/core" in prompt_addition
+    assert "Укажи ограничения." in prompt_addition
 
 
 def test_config_from_args_builds_default_output_paths():

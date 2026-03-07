@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Protocol
+from typing import TYPE_CHECKING, Any, Dict, Mapping, Protocol
 
 from codewiki.src.utils import file_manager
 
@@ -20,6 +20,20 @@ PROMPT_FILE_MAP = {
     "cluster_repo_prompt": "cluster_repo_prompt.md",
     "cluster_module_prompt": "cluster_module_prompt.md",
     "filter_folders_prompt": "filter_folders_prompt.md",
+}
+PROMPT_ADDITION_FILE_MAP = {
+    "prompt_additions_section": "additions/section.md",
+    "prompt_addition_doc_type_api": "additions/doc_type_api.md",
+    "prompt_addition_doc_type_architecture": "additions/doc_type_architecture.md",
+    "prompt_addition_doc_type_user_guide": "additions/doc_type_user_guide.md",
+    "prompt_addition_doc_type_developer": "additions/doc_type_developer.md",
+    "prompt_addition_doc_type_generic": "additions/doc_type_generic.md",
+    "prompt_addition_focus_modules": "additions/focus_modules.md",
+    "prompt_addition_custom_instructions": "additions/custom_instructions.md",
+}
+REQUIRED_PROMPT_FILE_MAP = {
+    **PROMPT_FILE_MAP,
+    **PROMPT_ADDITION_FILE_MAP,
 }
 
 
@@ -57,6 +71,30 @@ class PromptTemplateSet(Protocol):
     @property
     def filter_folders_prompt(self) -> str: ...
 
+    @property
+    def prompt_additions_section(self) -> str: ...
+
+    @property
+    def prompt_addition_doc_type_api(self) -> str: ...
+
+    @property
+    def prompt_addition_doc_type_architecture(self) -> str: ...
+
+    @property
+    def prompt_addition_doc_type_user_guide(self) -> str: ...
+
+    @property
+    def prompt_addition_doc_type_developer(self) -> str: ...
+
+    @property
+    def prompt_addition_doc_type_generic(self) -> str: ...
+
+    @property
+    def prompt_addition_focus_modules(self) -> str: ...
+
+    @property
+    def prompt_addition_custom_instructions(self) -> str: ...
+
 
 @dataclass(frozen=True)
 class FilePromptTemplateSet:
@@ -71,6 +109,14 @@ class FilePromptTemplateSet:
     cluster_repo_prompt: str
     cluster_module_prompt: str
     filter_folders_prompt: str
+    prompt_additions_section: str
+    prompt_addition_doc_type_api: str
+    prompt_addition_doc_type_architecture: str
+    prompt_addition_doc_type_user_guide: str
+    prompt_addition_doc_type_developer: str
+    prompt_addition_doc_type_generic: str
+    prompt_addition_focus_modules: str
+    prompt_addition_custom_instructions: str
 
     @classmethod
     def from_name(cls, prompt_name: str) -> "FilePromptTemplateSet":
@@ -86,7 +132,7 @@ class FilePromptTemplateSet:
     def from_directory(cls, prompt_name: str, prompt_dir: Any) -> "FilePromptTemplateSet":
         missing_files = [
             filename
-            for filename in PROMPT_FILE_MAP.values()
+            for filename in REQUIRED_PROMPT_FILE_MAP.values()
             if not prompt_dir.joinpath(filename).is_file()
         ]
         if missing_files:
@@ -97,7 +143,7 @@ class FilePromptTemplateSet:
 
         prompt_values = {
             attr_name: prompt_dir.joinpath(filename).read_text(encoding="utf-8").strip()
-            for attr_name, filename in PROMPT_FILE_MAP.items()
+            for attr_name, filename in REQUIRED_PROMPT_FILE_MAP.items()
         }
         return cls(prompt_name=prompt_name, **prompt_values)
 
@@ -176,6 +222,38 @@ class PromptBuilder:
             files=files,
         )
 
+    def build_prompt_addition(self, agent_instructions: Mapping[str, Any] | None) -> str:
+        if not agent_instructions:
+            return ""
+
+        additions: list[str] = []
+        doc_type = agent_instructions.get("doc_type")
+        if isinstance(doc_type, str) and doc_type:
+            additions.append(self._build_doc_type_addition(doc_type))
+
+        focus_modules = agent_instructions.get("focus_modules")
+        if isinstance(focus_modules, list):
+            filtered_focus_modules = [module for module in focus_modules if isinstance(module, str)]
+            if filtered_focus_modules:
+                additions.append(
+                    self.templates.prompt_addition_focus_modules.format(
+                        focus_modules=", ".join(filtered_focus_modules)
+                    )
+                )
+
+        custom_instructions = agent_instructions.get("custom_instructions")
+        if isinstance(custom_instructions, str) and custom_instructions:
+            additions.append(
+                self.templates.prompt_addition_custom_instructions.format(
+                    custom_instructions=custom_instructions
+                )
+            )
+
+        if not additions:
+            return ""
+
+        return self.templates.prompt_additions_section.format(instructions="\n".join(additions))
+
     def _format_module_tree(
         self, module_tree: "ModuleTree", current_module_name: str | None = None
     ) -> str:
@@ -232,6 +310,18 @@ class PromptBuilder:
         if not custom_instructions:
             return ""
         return f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
+
+    def _build_doc_type_addition(self, doc_type: str) -> str:
+        doc_type_templates = {
+            "api": self.templates.prompt_addition_doc_type_api,
+            "architecture": self.templates.prompt_addition_doc_type_architecture,
+            "user-guide": self.templates.prompt_addition_doc_type_user_guide,
+            "developer": self.templates.prompt_addition_doc_type_developer,
+        }
+        template = doc_type_templates.get(doc_type.lower())
+        if template is not None:
+            return template
+        return self.templates.prompt_addition_doc_type_generic.format(doc_type=doc_type)
 
 
 def _prompts_base_dir():

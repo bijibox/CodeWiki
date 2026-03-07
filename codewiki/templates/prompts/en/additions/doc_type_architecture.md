@@ -1,0 +1,1 @@
+- Focus on architecture documentation: system design, component relationships, and data flow.

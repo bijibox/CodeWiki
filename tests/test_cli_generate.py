@@ -7,6 +7,7 @@ from pytest import MonkeyPatch
 
 from codewiki.cli.commands.generate import generate_command
 from codewiki.cli.models.config import AgentInstructions, Configuration
+from codewiki.src.be.prompt_template import available_prompt_names
 
 
 class _FakeConfigManager:
@@ -173,4 +174,4 @@ def test_generate_command_rejects_unknown_prompt_name():
 
     assert result.exit_code != 0
     assert "Unknown prompt set 'missing'" in result.output
-    assert "Available prompt sets: en" in result.output
+    assert f"Available prompt sets: {', '.join(available_prompt_names())}" in result.output

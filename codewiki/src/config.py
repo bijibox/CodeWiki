@@ -128,32 +128,7 @@ class Config:
 
     def get_prompt_addition(self) -> str:
         """Generate prompt additions based on agent instructions."""
-        if not self.agent_instructions:
-            return ""
-
-        additions = []
-
-        if self.doc_type:
-            doc_type_instructions = {
-                "api": "Focus on API documentation: endpoints, parameters, return types, and usage examples.",
-                "architecture": "Focus on architecture documentation: system design, component relationships, and data flow.",
-                "user-guide": "Focus on user guide documentation: how to use features, step-by-step tutorials.",
-                "developer": "Focus on developer documentation: code structure, contribution guidelines, and implementation details.",
-            }
-            if self.doc_type.lower() in doc_type_instructions:
-                additions.append(doc_type_instructions[self.doc_type.lower()])
-            else:
-                additions.append(f"Focus on generating {self.doc_type} documentation.")
-
-        if self.focus_modules:
-            additions.append(
-                f"Pay special attention to and provide more detailed documentation for these modules: {', '.join(self.focus_modules)}"
-            )
-
-        if self.custom_instructions:
-            additions.append(f"Additional instructions: {self.custom_instructions}")
-
-        return "\n".join(additions) if additions else ""
+        return self.prompts.build_prompt_addition(self.agent_instructions)
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> "Config":
