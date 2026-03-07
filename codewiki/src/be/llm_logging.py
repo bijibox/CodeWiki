@@ -20,7 +20,10 @@ def log_llm_summary(
     phase: str,
     *,
     prompt_type: str | None,
-    duration_ms: int | None = None,
+    duration_seconds: float | None = None,
+    request_tokens: int | None = None,
+    response_tokens: int | None = None,
+    response_tokens_per_second: float | None = None,
 ) -> None:
     """Log a compact LLM event for verbosity level 3."""
     logger.debug(
@@ -30,7 +33,10 @@ def log_llm_summary(
             "verbosity_gate": 3,
             "llm_phase": phase,
             "llm_prompt_type": prompt_type or _DEFAULT_PROMPT_TYPE,
-            "llm_duration_ms": duration_ms,
+            "llm_duration_seconds": duration_seconds,
+            "llm_request_tokens": request_tokens,
+            "llm_response_tokens": response_tokens,
+            "llm_response_tokens_per_second": response_tokens_per_second,
         },
     )
 
@@ -82,7 +88,10 @@ def write_llm_markdown_artifact(
     sections: Iterable[tuple[str, str, str | None]],
     model: str | None = None,
     context: str | None = None,
-    duration_ms: int | None = None,
+    duration_seconds: float | None = None,
+    request_tokens: int | None = None,
+    response_tokens: int | None = None,
+    response_tokens_per_second: float | None = None,
 ) -> Path:
     """Persist a markdown artifact for a single LLM interaction."""
     normalized_prompt_type = _sanitize_prompt_type(prompt_type)
@@ -100,8 +109,14 @@ def write_llm_markdown_artifact(
         metadata_lines.append(f"- Model: `{model}`")
     if context:
         metadata_lines.append(f"- Context: `{context}`")
-    if duration_ms is not None:
-        metadata_lines.append(f"- Duration: `{duration_ms} ms`")
+    if duration_seconds is not None:
+        metadata_lines.append(f"- Duration: `{duration_seconds:.3f} s`")
+    if request_tokens is not None:
+        metadata_lines.append(f"- Request tokens: `{request_tokens}`")
+    if response_tokens is not None:
+        metadata_lines.append(f"- Response tokens: `{response_tokens}`")
+    if response_tokens_per_second is not None:
+        metadata_lines.append(f"- Response speed: `{response_tokens_per_second:.3f} tokens/s`")
 
     content_parts = ["# LLM Interaction", "", "## Metadata", *metadata_lines]
     for heading, body, language in sections:

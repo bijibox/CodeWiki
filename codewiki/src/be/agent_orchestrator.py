@@ -54,7 +54,7 @@ from codewiki.src.be.llm_logging import (
 )
 from codewiki.src.be.llm_services import create_fallback_models
 from codewiki.src.be.tracing import agent_model_label
-from codewiki.src.be.utils import is_complex_module
+from codewiki.src.be.utils import count_tokens, is_complex_module
 from codewiki.src.config import (
     Config,
     MODULE_TREE_FILENAME,
@@ -189,18 +189,31 @@ class AgentOrchestrator:
                 model=model_label,
                 context=module_name,
             )
-            log_llm_summary(logger, "request", prompt_type="module_generation")
+            request_tokens = count_tokens(system_prompt) + count_tokens(user_prompt)
+            log_llm_summary(
+                logger,
+                "request",
+                prompt_type="module_generation",
+                request_tokens=request_tokens,
+            )
             started_at = time.perf_counter()
             result = await agent.run(
                 user_prompt,
                 deps=deps,
             )
             duration_ms = round((time.perf_counter() - started_at) * 1000)
+            duration_seconds = duration_ms / 1000
+            response_tokens = count_tokens(result.output)
+            response_tokens_per_second = (
+                response_tokens / duration_seconds if duration_seconds > 0 else None
+            )
             log_llm_summary(
                 logger,
                 "response",
                 prompt_type="module_generation",
-                duration_ms=duration_ms,
+                duration_seconds=duration_seconds,
+                response_tokens=response_tokens,
+                response_tokens_per_second=response_tokens_per_second,
             )
             log_llm_content(
                 logger,
@@ -224,7 +237,10 @@ class AgentOrchestrator:
                 prompt_type="module_generation",
                 model=model_label,
                 context=module_name,
-                duration_ms=duration_ms,
+                duration_seconds=duration_seconds,
+                request_tokens=request_tokens,
+                response_tokens=response_tokens,
+                response_tokens_per_second=response_tokens_per_second,
                 sections=(
                     ("System Prompt", system_prompt, "text"),
                     ("User Prompt", user_prompt, "text"),

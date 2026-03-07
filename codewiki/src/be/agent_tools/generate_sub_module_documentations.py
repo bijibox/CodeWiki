@@ -124,18 +124,31 @@ async def generate_sub_module_documentation(
             model=model_label,
             context=sub_module_name,
         )
-        log_llm_summary(logger, "request", prompt_type="sub_module_generation")
+        request_tokens = count_tokens(system_prompt) + count_tokens(user_prompt)
+        log_llm_summary(
+            logger,
+            "request",
+            prompt_type="sub_module_generation",
+            request_tokens=request_tokens,
+        )
         started_at = time.perf_counter()
         result = await sub_agent.run(
             user_prompt,
             deps=ctx.deps,
         )
         duration_ms = round((time.perf_counter() - started_at) * 1000)
+        duration_seconds = duration_ms / 1000
+        response_tokens = count_tokens(result.output)
+        response_tokens_per_second = (
+            response_tokens / duration_seconds if duration_seconds > 0 else None
+        )
         log_llm_summary(
             logger,
             "response",
             prompt_type="sub_module_generation",
-            duration_ms=duration_ms,
+            duration_seconds=duration_seconds,
+            response_tokens=response_tokens,
+            response_tokens_per_second=response_tokens_per_second,
         )
         log_llm_content(
             logger,
@@ -159,7 +172,10 @@ async def generate_sub_module_documentation(
             prompt_type="sub_module_generation",
             model=model_label,
             context=sub_module_name,
-            duration_ms=duration_ms,
+            duration_seconds=duration_seconds,
+            request_tokens=request_tokens,
+            response_tokens=response_tokens,
+            response_tokens_per_second=response_tokens_per_second,
             sections=(
                 ("System Prompt", system_prompt, "text"),
                 ("User Prompt", user_prompt, "text"),

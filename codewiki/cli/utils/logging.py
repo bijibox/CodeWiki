@@ -95,15 +95,33 @@ class CodeWikiFormatter(logging.Formatter):
         if event_type == "llm_summary":
             phase = getattr(record, "llm_phase", "request")
             if phase == "request":
+                request_tokens = getattr(record, "llm_request_tokens", None)
+                request_tokens_display = "unknown"
+                if request_tokens is not None:
+                    request_tokens_display = str(request_tokens)
                 return (
                     f"[{self._format_clock(record)}] "
-                    f"LLM request: type={getattr(record, 'llm_prompt_type', 'llm')}"
+                    f"LLM request: type={getattr(record, 'llm_prompt_type', 'llm')} "
+                    f"input_tokens={request_tokens_display}"
                 )
-            duration_ms = getattr(record, "llm_duration_ms", None)
+            duration_seconds = getattr(record, "llm_duration_seconds", None)
+            response_tokens = getattr(record, "llm_response_tokens", None)
+            response_tokens_per_second = getattr(record, "llm_response_tokens_per_second", None)
             duration_display = "unknown"
-            if duration_ms is not None:
-                duration_display = str(duration_ms)
-            return f"[{self._format_clock(record)}] LLM response: duration_ms={duration_display}"
+            response_tokens_display = "unknown"
+            response_speed_display = "unknown"
+            if duration_seconds is not None:
+                duration_display = f"{duration_seconds:.3f}"
+            if response_tokens is not None:
+                response_tokens_display = str(response_tokens)
+            if response_tokens_per_second is not None:
+                response_speed_display = f"{response_tokens_per_second:.3f}"
+            return (
+                f"[{self._format_clock(record)}] LLM response: "
+                f"duration_s={duration_display} "
+                f"output_tokens={response_tokens_display} "
+                f"output_tps={response_speed_display}"
+            )
         if event_type == "llm_content":
             lines = ["", f"===== {getattr(record, 'llm_title', 'LLM')} ====="]
             prompt_type = getattr(record, "llm_prompt_type", None)

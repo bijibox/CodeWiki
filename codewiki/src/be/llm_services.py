@@ -19,6 +19,7 @@ from codewiki.src.be.llm_logging import (
     log_llm_summary,
     write_llm_markdown_artifact,
 )
+from codewiki.src.be.utils import count_tokens
 from codewiki.src.config import Config
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,8 @@ def call_llm(
         model = config.main_model
 
     configure_logging(int(getattr(config, "verbosity", 0)))
-    log_llm_summary(logger, "request", prompt_type=prompt_type)
+    request_tokens = count_tokens(prompt)
+    log_llm_summary(logger, "request", prompt_type=prompt_type, request_tokens=request_tokens)
     log_llm_content(
         logger,
         "LLM REQUEST",
@@ -99,11 +101,23 @@ def call_llm(
         max_tokens=config.max_tokens,
     )
     duration_ms = round((time.perf_counter() - started_at) * 1000)
+    duration_seconds = duration_ms / 1000
     content = response.choices[0].message.content
     if content is None:
         raise RuntimeError("LLM response did not include message content")
+    response_tokens = count_tokens(content)
+    response_tokens_per_second = (
+        response_tokens / duration_seconds if duration_seconds > 0 else None
+    )
 
-    log_llm_summary(logger, "response", prompt_type=prompt_type, duration_ms=duration_ms)
+    log_llm_summary(
+        logger,
+        "response",
+        prompt_type=prompt_type,
+        duration_seconds=duration_seconds,
+        response_tokens=response_tokens,
+        response_tokens_per_second=response_tokens_per_second,
+    )
     log_llm_content(
         logger,
         "LLM RESPONSE",
@@ -117,7 +131,10 @@ def call_llm(
         prompt_type=prompt_type,
         model=model,
         context=context,
-        duration_ms=duration_ms,
+        duration_seconds=duration_seconds,
+        request_tokens=request_tokens,
+        response_tokens=response_tokens,
+        response_tokens_per_second=response_tokens_per_second,
         sections=(
             ("Request", prompt, "text"),
             ("Response", content, "markdown"),
