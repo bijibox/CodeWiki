@@ -528,7 +528,7 @@ def config_validate(quick: bool, verbose: bool):
         click.secho(f"\n✗ Configuration error: {e.message}", fg="red", err=True)
         sys.exit(e.exit_code)
     except Exception as e:
-        sys.exit(handle_error(e, verbose=verbose))
+        sys.exit(handle_error(e, verbosity=1 if verbose else 0))
 
 
 @config_group.command(name="agent")

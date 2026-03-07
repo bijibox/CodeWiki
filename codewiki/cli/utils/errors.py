@@ -11,7 +11,8 @@ Exit Codes:
 """
 
 import sys
-import click
+
+from codewiki.cli.utils.logging import CLILogger, create_logger
 
 # Exit codes
 EXIT_SUCCESS = 0
@@ -59,26 +60,28 @@ class FileSystemError(CodeWikiError):
         super().__init__(message, EXIT_FILESYSTEM_ERROR)
 
 
-def handle_error(error: Exception, verbose: bool = False) -> int:
+def handle_error(error: Exception, verbosity: int = 0, logger: CLILogger | None = None) -> int:
     """
     Handle errors and return appropriate exit code.
 
     Args:
         error: The exception to handle
-        verbose: Whether to show detailed error information
+        verbosity: Verbosity level
+        logger: Optional shared logger facade
 
     Returns:
         Exit code for the error
     """
+    active_logger = logger or create_logger(verbosity=verbosity, name="codewiki.cli.errors")
     if isinstance(error, CodeWikiError):
-        click.secho(f"\n✗ Error: {error.message}", fg="red", err=True)
+        active_logger.error(f"Error: {error.message}")
         return error.exit_code
     else:
-        click.secho(f"\n✗ Unexpected error: {error}", fg="red", err=True)
-        if verbose:
+        active_logger.error(f"Unexpected error: {error}")
+        if verbosity >= 1:
             import traceback
 
-            click.echo(traceback.format_exc(), err=True)
+            active_logger.error(traceback.format_exc())
         return EXIT_GENERAL_ERROR
 
 
@@ -91,21 +94,22 @@ def error_with_suggestion(message: str, suggestion: str, exit_code: int = EXIT_G
         suggestion: Suggested action to resolve the error
         exit_code: Exit code to use
     """
-    click.secho(f"\n✗ Error: {message}", fg="red", err=True)
-    click.echo(f"\n{suggestion}", err=True)
+    logger = create_logger(name="codewiki.cli.errors")
+    logger.error(message)
+    logger.info(suggestion)
     sys.exit(exit_code)
 
 
 def warning(message: str):
     """Display a warning message."""
-    click.secho(f"⚠️  {message}", fg="yellow")
+    create_logger(name="codewiki.cli.errors").warning(message)
 
 
 def success(message: str):
     """Display a success message."""
-    click.secho(f"✓ {message}", fg="green")
+    create_logger(name="codewiki.cli.errors").success(message)
 
 
 def info(message: str):
     """Display an info message."""
-    click.echo(message)
+    create_logger(name="codewiki.cli.errors").info(message)

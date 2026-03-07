@@ -74,7 +74,13 @@ def cluster_modules(
         current_module_tree,
         current_module_name,
     )
-    response = call_llm(prompt, config, model=config.cluster_model)
+    response = call_llm(
+        prompt,
+        config,
+        model=config.cluster_model,
+        trace_label="cluster_modules",
+        trace_context=current_module_name or "<repository>",
+    )
 
     # parse the response
     try:

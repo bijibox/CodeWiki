@@ -2,6 +2,7 @@
 LLM service factory for creating configured LLM clients.
 """
 
+from codewiki.src.be.tracing import emit_trace_block
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.openai import OpenAIModelSettings
@@ -46,6 +47,8 @@ def call_llm(
     config: Config,
     model: str | None = None,
     temperature: float = 0.0,
+    trace_label: str | None = None,
+    trace_context: str | None = None,
 ) -> str:
     """
     Call LLM with the given prompt.
@@ -55,12 +58,23 @@ def call_llm(
         config: Configuration containing LLM settings
         model: Model name (defaults to config.main_model)
         temperature: Temperature setting
+        trace_label: Optional trace label for verbose output
+        trace_context: Optional trace context for verbose output
 
     Returns:
         LLM response text
     """
     if model is None:
         model = config.main_model
+
+    emit_trace_block(
+        config,
+        "LLM REQUEST",
+        prompt,
+        model=model,
+        label=trace_label,
+        context=trace_context,
+    )
 
     client = create_openai_client(config)
     response = client.chat.completions.create(
@@ -72,4 +86,12 @@ def call_llm(
     content = response.choices[0].message.content
     if content is None:
         raise RuntimeError("LLM response did not include message content")
+    emit_trace_block(
+        config,
+        "LLM RESPONSE",
+        content,
+        model=model,
+        label=trace_label,
+        context=trace_context,
+    )
     return content

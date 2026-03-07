@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 import argparse
 import os
 from dotenv import load_dotenv
@@ -75,6 +75,8 @@ class Config:
     # Agent instructions for customization
     agent_instructions: Optional[Dict[str, Any]] = None
     prompt_name: str = DEFAULT_PROMPT_NAME
+    verbosity: int = 0
+    module_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
     prompts: PromptBuilder = field(init=False)
 
     def __post_init__(self) -> None:
@@ -164,6 +166,7 @@ class Config:
             cluster_model=CLUSTER_MODEL,
             fallback_model=FALLBACK_MODEL_1,
             prompt_name=prompt_name,
+            verbosity=0,
         )
 
     @classmethod
@@ -182,6 +185,8 @@ class Config:
         max_depth: int = MAX_DEPTH,
         agent_instructions: Optional[Dict[str, Any]] = None,
         prompt_name: str = DEFAULT_PROMPT_NAME,
+        verbosity: int = 0,
+        module_progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> "Config":
         """
         Create configuration for CLI context.
@@ -200,6 +205,8 @@ class Config:
             max_depth: Maximum depth for hierarchical decomposition
             agent_instructions: Custom agent instructions dict
             prompt_name: Prompt template set name
+            verbosity: Verbosity level for CLI tracing and progress
+            module_progress_callback: Optional callback for module progress events
 
         Returns:
             Config instance
@@ -223,4 +230,6 @@ class Config:
             max_token_per_leaf_module=max_token_per_leaf_module,
             agent_instructions=agent_instructions,
             prompt_name=prompt_name,
+            verbosity=verbosity,
+            module_progress_callback=module_progress_callback,
         )

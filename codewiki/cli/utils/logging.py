@@ -1,62 +1,257 @@
 """
-Logging utilities for CLI with colored output and progress tracking.
+Unified logging utilities for CLI and backend runtime output.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional
-import click
+import logging
+import sys
+from typing import Any, Optional
+
+from rich.console import Console
+from rich.logging import RichHandler
+
+MAX_VERBOSITY = 3
+LOGGER_NAME = "codewiki"
+
+
+def normalize_verbosity(verbosity: int) -> int:
+    """Clamp verbosity to the supported range."""
+    return max(0, min(verbosity, MAX_VERBOSITY))
+
+
+class VerbosityFilter(logging.Filter):
+    """Filter records according to CLI verbosity and record metadata."""
+
+    def __init__(self, verbosity: int):
+        super().__init__()
+        self.verbosity = normalize_verbosity(verbosity)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+
+        gate = getattr(record, "verbosity_gate", None)
+        if isinstance(gate, int):
+            return self.verbosity >= gate
+
+        if record.name.startswith(f"{LOGGER_NAME}.src.be"):
+            return self.verbosity >= 1
+
+        if record.levelno == logging.DEBUG:
+            return self.verbosity >= 1
+
+        return True
+
+
+class CodeWikiFormatter(logging.Formatter):
+    """Formatter for user-facing CLI and trace output."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        event_type = getattr(record, "event_type", "message")
+        message = record.getMessage()
+
+        if event_type == "blank":
+            return ""
+        if event_type == "step":
+            step = getattr(record, "step", None)
+            total = getattr(record, "total", None)
+            prefix = f"[{step}/{total}]" if step is not None and total is not None else "→"
+            return f"{prefix} {message}"
+        if event_type == "success":
+            return f"✓ {message}"
+        if event_type == "warning":
+            return f"⚠️  {message}"
+        if event_type == "error":
+            return f"✗ {message}"
+        if event_type == "debug":
+            return f"[{self._format_clock(record)}] {message}"
+        if event_type == "progress_stage":
+            if getattr(record, "verbosity_gate", 0) >= 1:
+                return (
+                    f"\n[{getattr(record, 'elapsed', self._format_clock(record))}] "
+                    f"Phase {getattr(record, 'step', '?')}/{getattr(record, 'total', '?')}: {message}"
+                )
+            return f"[{getattr(record, 'step', '?')}/{getattr(record, 'total', '?')}] {message}"
+        if event_type == "progress_update":
+            return f"[{getattr(record, 'elapsed', self._format_clock(record))}]   {message}"
+        if event_type == "progress_complete":
+            suffix = ""
+            if getattr(record, "stage_time", None) is not None:
+                suffix = f" ({getattr(record, 'stage_time'):.1f}s)"
+            return (
+                f"[{getattr(record, 'elapsed', self._format_clock(record))}]   "
+                f"{message}{suffix}"
+            )
+        if event_type == "module_progress":
+            current = getattr(record, "current", "?")
+            total = getattr(record, "total", "?")
+            module_type = getattr(record, "module_type", "module")
+            module_path = getattr(record, "module_path", message)
+            status = getattr(record, "status", "generated")
+            suffix = f"... {status}" if status else ""
+            return f"  [{current}/{total}] {module_type} {module_path}{suffix}"
+        if event_type == "trace":
+            lines = ["", f"===== {getattr(record, 'trace_title', 'TRACE')} ====="]
+            label = getattr(record, "trace_label", None)
+            context = getattr(record, "trace_context", None)
+            model = getattr(record, "trace_model", None)
+            if label:
+                lines.append(f"label: {label}")
+            if context:
+                lines.append(f"context: {context}")
+            if model:
+                lines.append(f"model: {model}")
+            lines.append("----- BEGIN CONTENT -----")
+            lines.append(message)
+            lines.append("----- END CONTENT -----")
+            return "\n".join(lines)
+        if event_type == "section":
+            return message
+
+        return message
+
+    def _format_clock(self, record: logging.LogRecord) -> str:
+        return datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+
+
+def configure_logging(verbosity: int = 0) -> logging.Logger:
+    """Configure the shared CodeWiki logger hierarchy."""
+    normalized = normalize_verbosity(verbosity)
+    root_logger = logging.getLogger(LOGGER_NAME)
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.propagate = False
+    root_logger.handlers.clear()
+
+    console = Console(file=sys.stdout, force_terminal=False, color_system="auto", highlight=False)
+    handler = RichHandler(
+        console=console,
+        show_time=False,
+        show_level=False,
+        show_path=False,
+        markup=False,
+        rich_tracebacks=False,
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(CodeWikiFormatter())
+    handler.addFilter(VerbosityFilter(normalized))
+    root_logger.addHandler(handler)
+
+    backend_logger = logging.getLogger(f"{LOGGER_NAME}.src.be")
+    backend_logger.handlers.clear()
+    backend_logger.setLevel(logging.DEBUG)
+    backend_logger.propagate = True
+
+    return root_logger
 
 
 class CLILogger:
-    """Logger for CLI with support for verbose and normal modes."""
+    """Thin wrapper around the shared logger with convenience helpers."""
 
-    def __init__(self, verbose: bool = False):
-        """
-        Initialize the logger.
-
-        Args:
-            verbose: Enable verbose output
-        """
-        self.verbose = verbose
+    def __init__(self, verbosity: int = 0, name: str = f"{LOGGER_NAME}.cli"):
+        self.verbosity = normalize_verbosity(verbosity)
+        configure_logging(self.verbosity)
+        self.logger = logging.getLogger(name)
         self.start_time = datetime.now()
 
-    def debug(self, message: str):
-        """Log debug message (only in verbose mode)."""
-        if self.verbose:
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            click.secho(f"[{timestamp}] {message}", fg="cyan", dim=True)
+    def info(self, message: str, *, verbosity_gate: int = 0):
+        self._log(logging.INFO, message, event_type="message", verbosity_gate=verbosity_gate)
 
-    def info(self, message: str):
-        """Log info message."""
-        click.echo(message)
+    def debug(self, message: str):
+        self._log(logging.DEBUG, message, event_type="debug", verbosity_gate=1)
 
     def success(self, message: str):
-        """Log success message in green."""
-        click.secho(f"✓ {message}", fg="green")
+        self._log(logging.INFO, message, event_type="success", verbosity_gate=0)
 
     def warning(self, message: str):
-        """Log warning message in yellow."""
-        click.secho(f"⚠️  {message}", fg="yellow")
+        self._log(logging.WARNING, message, event_type="warning", verbosity_gate=0)
 
     def error(self, message: str):
-        """Log error message in red."""
-        click.secho(f"✗ {message}", fg="red", err=True)
+        self._log(logging.ERROR, message, event_type="error", verbosity_gate=0)
 
     def step(self, message: str, step: Optional[int] = None, total: Optional[int] = None):
-        """
-        Log a processing step.
+        self._log(
+            logging.INFO,
+            message,
+            event_type="step",
+            verbosity_gate=0,
+            step=step,
+            total=total,
+        )
 
-        Args:
-            message: Step description
-            step: Current step number
-            total: Total number of steps
-        """
-        if step is not None and total is not None:
-            prefix = f"[{step}/{total}]"
-        else:
-            prefix = "→"
+    def section(self, message: str):
+        self._log(logging.INFO, message, event_type="section", verbosity_gate=0)
 
-        click.secho(f"{prefix} {message}", fg="blue", bold=True)
+    def blank(self):
+        self._log(logging.INFO, "", event_type="blank", verbosity_gate=0)
+
+    def progress_stage(
+        self,
+        message: str,
+        *,
+        step: int,
+        total: int,
+        elapsed: str | None = None,
+        verbosity_gate: int = 0,
+    ):
+        self._log(
+            logging.INFO,
+            message,
+            event_type="progress_stage",
+            verbosity_gate=verbosity_gate,
+            step=step,
+            total=total,
+            elapsed=elapsed,
+        )
+
+    def progress_update(self, message: str, *, elapsed: str, verbosity_gate: int = 1):
+        self._log(
+            logging.INFO,
+            message,
+            event_type="progress_update",
+            verbosity_gate=verbosity_gate,
+            elapsed=elapsed,
+        )
+
+    def progress_complete(
+        self,
+        message: str,
+        *,
+        elapsed: str,
+        stage_time: float | None = None,
+        verbosity_gate: int = 1,
+    ):
+        self._log(
+            logging.INFO,
+            message,
+            event_type="progress_complete",
+            verbosity_gate=verbosity_gate,
+            elapsed=elapsed,
+            stage_time=stage_time,
+        )
+
+    def module_progress(
+        self,
+        *,
+        current: int,
+        total: int,
+        module_type: str,
+        module_path: str,
+        status: str,
+        verbosity_gate: int = 2,
+    ):
+        self._log(
+            logging.INFO,
+            module_path,
+            event_type="module_progress",
+            verbosity_gate=verbosity_gate,
+            current=current,
+            total=total,
+            module_type=module_type,
+            module_path=module_path,
+            status=status,
+        )
 
     def elapsed_time(self) -> str:
         """Get elapsed time since logger was created."""
@@ -66,18 +261,12 @@ class CLILogger:
 
         if minutes > 0:
             return f"{minutes}m {seconds}s"
-        else:
-            return f"{seconds}s"
+        return f"{seconds}s"
+
+    def _log(self, level: int, message: str, **extra: Any):
+        self.logger.log(level, message, extra=extra)
 
 
-def create_logger(verbose: bool = False) -> CLILogger:
-    """
-    Create and return a CLI logger.
-
-    Args:
-        verbose: Enable verbose output
-
-    Returns:
-        Configured CLILogger instance
-    """
-    return CLILogger(verbose=verbose)
+def create_logger(verbosity: int = 0, name: str = f"{LOGGER_NAME}.cli") -> CLILogger:
+    """Create and return a configured CodeWiki logger wrapper."""
+    return CLILogger(verbosity=verbosity, name=name)

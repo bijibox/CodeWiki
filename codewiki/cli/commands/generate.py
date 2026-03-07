@@ -26,7 +26,7 @@ from codewiki.cli.utils.repo_validator import (
     get_git_commit_hash,
     get_git_branch,
 )
-from codewiki.cli.utils.logging import create_logger
+from codewiki.cli.utils.logging import create_logger, normalize_verbosity
 from codewiki.cli.adapters.doc_generator import CLIDocumentationGenerator
 from codewiki.cli.utils.instructions import display_post_generation_instructions
 from codewiki.cli.models.job import GenerationOptions
@@ -127,8 +127,8 @@ def validate_prompt_name(
 @click.option(
     "--verbose",
     "-v",
-    is_flag=True,
-    help="Show detailed progress and debug information",
+    count=True,
+    help="Increase verbosity; repeat for -vv and -vvv",
 )
 @click.option(
     "--max-tokens",
@@ -167,7 +167,7 @@ def generate_command(
     doc_type: Optional[str],
     instructions: Optional[str],
     prompt_name: str,
-    verbose: bool,
+    verbose: int,
     max_tokens: Optional[int],
     max_token_per_module: Optional[int],
     max_token_per_leaf_module: Optional[int],
@@ -210,6 +210,14 @@ def generate_command(
     $ codewiki generate --prompt-name en
 
     \b
+    # Detailed progress
+    $ codewiki generate -vv
+
+    \b
+    # Full prompt and response tracing
+    $ codewiki generate -vvv
+
+    \b
     # Override max tokens for this generation
     $ codewiki generate --max-tokens 16384
 
@@ -221,7 +229,8 @@ def generate_command(
     # Override max depth for hierarchical decomposition
     $ codewiki generate --max-depth 3
     """
-    logger = create_logger(verbose=verbose)
+    verbosity = normalize_verbosity(verbose)
+    logger = create_logger(verbosity=verbosity)
     start_time = time.time()
 
     # Suppress httpx INFO logs
@@ -263,7 +272,7 @@ def generate_command(
         repo_path, languages = validate_repository(repo_path)
 
         logger.success(f"Repository valid: {repo_path.name}")
-        if verbose:
+        if verbosity >= 1:
             logger.debug(
                 f"Detected languages: {', '.join(f'{lang} ({count} files)' for lang, count in languages)}"
             )
@@ -321,7 +330,7 @@ def generate_command(
 
         # Generate documentation
         logger.step("Generating documentation...", 4, 4)
-        click.echo()
+        logger.blank()
 
         # Create generation options
         GenerationOptions(
@@ -342,7 +351,7 @@ def generate_command(
                 custom_instructions=instructions,
             )
 
-            if verbose:
+            if verbosity >= 1:
                 if include:
                     logger.debug(f"Include patterns: {parse_patterns(include)}")
                 if exclude:
@@ -356,7 +365,7 @@ def generate_command(
                 logger.debug(f"Prompt set: {prompt_name}")
 
         # Log max token settings if verbose
-        if verbose:
+        if verbosity >= 1:
             effective_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
             effective_max_token_per_module = (
                 max_token_per_module
@@ -406,6 +415,7 @@ def generate_command(
                 "api_key": api_key,
                 "agent_instructions": agent_instructions_dict,
                 "prompt_name": prompt_name,
+                "detected_languages": languages,
                 # Max token settings (runtime overrides take precedence)
                 "max_tokens": max_tokens if max_tokens is not None else config.max_tokens,
                 "max_token_per_module": (
@@ -421,7 +431,7 @@ def generate_command(
                 # Max depth setting (runtime override takes precedence)
                 "max_depth": max_depth if max_depth is not None else config.max_depth,
             },
-            verbose=verbose,
+            verbosity=verbosity,
             generate_html=github_pages,
         )
 
@@ -460,6 +470,7 @@ def generate_command(
                 "generation_time": generation_time,
                 "total_tokens_used": job.statistics.total_tokens_used,
             },
+            logger=logger,
         )
 
     except ConfigurationError as e:
@@ -475,7 +486,8 @@ def generate_command(
         logger.error(f"Traceback: {traceback.format_exc()}")
         sys.exit(e.exit_code)
     except KeyboardInterrupt:
-        click.echo("\n\nInterrupted by user")
+        logger.blank()
+        logger.info("Interrupted by user")
         sys.exit(130)
     except Exception as e:
-        sys.exit(handle_error(e, verbose=verbose))
+        sys.exit(handle_error(e, verbosity=verbosity, logger=logger))

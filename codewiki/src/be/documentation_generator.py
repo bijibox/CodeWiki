@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 
 # Local imports
 from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
-from codewiki.src.be.llm_services import call_llm
 from codewiki.src.be.cluster_modules import cluster_modules
+from codewiki.src.be.llm_services import call_llm
 from codewiki.src.config import (
     Config,
     FIRST_MODULE_TREE_FILENAME,
@@ -147,7 +147,10 @@ class DocumentationGenerator:
         processed_modules = set()
 
         if len(module_tree) > 0:
-            for module_path, module_name in processing_order:
+            total_modules = len(processing_order) + 1
+            for index, (module_path, module_name) in enumerate(processing_order, start=1):
+                module_key = "/".join(module_path)
+                module_info: Dict[str, Any] = {}
                 try:
                     # Get the module info from the tree
                     module_info = module_tree
@@ -157,41 +160,85 @@ class DocumentationGenerator:
                             module_info = module_info.get("children", {})
 
                     # Skip if already processed
-                    module_key = "/".join(module_path)
                     if module_key in processed_modules:
+                        self._emit_module_progress(
+                            module_name,
+                            module_key,
+                            "leaf" if self.is_leaf_module(module_info) else "parent",
+                            "skipped",
+                            index=index,
+                            total=total_modules,
+                        )
                         continue
 
                     # Process the module
                     if self.is_leaf_module(module_info):
                         logger.info(f"📄 Processing leaf module: {module_key}")
-                        final_module_tree = await self.agent_orchestrator.process_module(
+                        final_module_tree, status = await self.agent_orchestrator.process_module(
                             module_name,
                             components,
                             module_info["components"],
                             module_path,
                             working_dir,
                         )
+                        module_type = "leaf"
                     else:
                         logger.info(f"📁 Processing parent module: {module_key}")
-                        final_module_tree = await self.generate_parent_module_docs(
+                        final_module_tree, status = await self.generate_parent_module_docs(
                             module_path, working_dir
                         )
+                        module_type = "parent"
 
                     processed_modules.add(module_key)
+                    self._emit_module_progress(
+                        module_name,
+                        module_key,
+                        module_type,
+                        status,
+                        index=index,
+                        total=total_modules,
+                    )
 
                 except Exception as e:
+                    self._emit_module_progress(
+                        module_name,
+                        module_key,
+                        "leaf" if self.is_leaf_module(module_info) else "parent",
+                        "failed",
+                        index=index,
+                        total=total_modules,
+                        error=str(e),
+                    )
                     logger.error(f"Failed to process module {module_key}: {str(e)}")
                     logger.error(f"Traceback: {traceback.format_exc()}")
                     continue
 
             # Generate repo overview
             logger.info(f"📚 Generating repository overview")
-            final_module_tree = await self.generate_parent_module_docs([], working_dir)
+            final_module_tree, overview_status = await self.generate_parent_module_docs(
+                [], working_dir
+            )
+            self._emit_module_progress(
+                "overview",
+                "overview",
+                "overview",
+                overview_status,
+                index=total_modules,
+                total=total_modules,
+            )
         else:
             logger.info(f"Processing whole repo because repo can fit in the context window")
             repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
-            final_module_tree = await self.agent_orchestrator.process_module(
+            final_module_tree, status = await self.agent_orchestrator.process_module(
                 repo_name, components, leaf_nodes, [], working_dir
+            )
+            self._emit_module_progress(
+                repo_name,
+                repo_name,
+                "leaf",
+                status,
+                index=1,
+                total=1,
             )
 
             # save final_module_tree to module_tree.json
@@ -208,7 +255,7 @@ class DocumentationGenerator:
 
     async def generate_parent_module_docs(
         self, module_path: List[str], working_dir: str
-    ) -> Dict[str, Any]:
+    ) -> tuple[Dict[str, Any], str]:
         """Generate documentation for a parent module based on its children's documentation."""
         module_name = (
             module_path[-1]
@@ -226,7 +273,7 @@ class DocumentationGenerator:
         overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
         if os.path.exists(overview_docs_path):
             logger.info(f"✓ Overview docs already exists at {overview_docs_path}")
-            return module_tree
+            return module_tree, "cached"
 
         # check if parent docs already exists
         parent_docs_path = os.path.join(
@@ -235,7 +282,7 @@ class DocumentationGenerator:
         )
         if os.path.exists(parent_docs_path):
             logger.info(f"✓ Parent docs already exists at {parent_docs_path}")
-            return module_tree
+            return module_tree, "cached"
 
         # Create repo structure with 1-depth children docs and target indicator
         repo_structure = self.build_overview_structure(module_tree, module_path, working_dir)
@@ -252,7 +299,12 @@ class DocumentationGenerator:
         )
 
         try:
-            parent_docs = call_llm(prompt, self.config)
+            parent_docs = call_llm(
+                prompt,
+                self.config,
+                trace_label="module_overview" if len(module_path) >= 1 else "repo_overview",
+                trace_context=module_name,
+            )
 
             # Parse and save parent documentation
             parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
@@ -260,12 +312,39 @@ class DocumentationGenerator:
             file_manager.save_text(parent_content, parent_docs_path)
 
             logger.debug(f"Successfully generated parent documentation for: {module_name}")
-            return module_tree
+            return module_tree, "generated"
 
         except Exception as e:
             logger.error(f"Error generating parent documentation for {module_name}: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
+
+    def _emit_module_progress(
+        self,
+        module_name: str,
+        module_path: str,
+        module_type: str,
+        status: str,
+        *,
+        index: int,
+        total: int,
+        error: str | None = None,
+    ) -> None:
+        """Emit a module progress event when a callback is configured."""
+        if self.config.module_progress_callback is None:
+            return
+
+        self.config.module_progress_callback(
+            {
+                "index": index,
+                "total": total,
+                "module_name": module_name,
+                "module_path": module_path,
+                "module_type": module_type,
+                "status": status,
+                "error": error,
+            }
+        )
 
     async def run(self) -> None:
         """Run the complete documentation generation process using dynamic programming."""

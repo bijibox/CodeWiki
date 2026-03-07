@@ -4,6 +4,7 @@ from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
 from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_tool
 from codewiki.src.be.llm_services import create_fallback_models
+from codewiki.src.be.tracing import agent_model_label, emit_json_trace_block, emit_trace_block
 from codewiki.src.be.utils import is_complex_module, count_tokens
 from codewiki.src.be.cluster_modules import format_potential_core_components
 
@@ -51,13 +52,22 @@ async def generate_sub_module_documentation(
             and ctx.deps.current_depth < ctx.deps.max_depth
             and num_tokens >= ctx.deps.config.max_token_per_leaf_module
         ):
+            system_prompt = ctx.deps.config.prompts.build_system_prompt(
+                sub_module_name, ctx.deps.custom_instructions
+            )
+            emit_trace_block(
+                ctx.deps.config,
+                "AGENT SYSTEM PROMPT",
+                system_prompt,
+                model=agent_model_label(ctx.deps.config),
+                label="sub_module_generation",
+                context=sub_module_name,
+            )
             sub_agent: Agent[CodeWikiDeps, str] = Agent(
                 model=fallback_models,
                 name=sub_module_name,
                 deps_type=CodeWikiDeps,
-                system_prompt=ctx.deps.config.prompts.build_system_prompt(
-                    sub_module_name, ctx.deps.custom_instructions
-                ),
+                system_prompt=system_prompt,
                 tools=[
                     read_code_components_tool,
                     str_replace_editor_tool,
@@ -65,13 +75,22 @@ async def generate_sub_module_documentation(
                 ],
             )
         else:
+            system_prompt = ctx.deps.config.prompts.build_leaf_system_prompt(
+                sub_module_name, ctx.deps.custom_instructions
+            )
+            emit_trace_block(
+                ctx.deps.config,
+                "AGENT SYSTEM PROMPT",
+                system_prompt,
+                model=agent_model_label(ctx.deps.config),
+                label="sub_module_generation",
+                context=sub_module_name,
+            )
             sub_agent = Agent[CodeWikiDeps, str](
                 model=fallback_models,
                 name=sub_module_name,
                 deps_type=CodeWikiDeps,
-                system_prompt=ctx.deps.config.prompts.build_leaf_system_prompt(
-                    sub_module_name, ctx.deps.custom_instructions
-                ),
+                system_prompt=system_prompt,
                 tools=[read_code_components_tool, str_replace_editor_tool],
             )
 
@@ -81,14 +100,39 @@ async def generate_sub_module_documentation(
         # log the current module tree
         # print(f"Current module tree: {json.dumps(deps.module_tree, indent=4)}")
 
-        await sub_agent.run(
-            ctx.deps.config.prompts.build_user_prompt(
-                module_name=deps.current_module_name,
-                core_component_ids=core_component_ids,
-                components=ctx.deps.components,
-                module_tree=ctx.deps.module_tree,
-            ),
+        user_prompt = ctx.deps.config.prompts.build_user_prompt(
+            module_name=deps.current_module_name,
+            core_component_ids=core_component_ids,
+            components=ctx.deps.components,
+            module_tree=ctx.deps.module_tree,
+        )
+        emit_trace_block(
+            ctx.deps.config,
+            "AGENT USER PROMPT",
+            user_prompt,
+            model=agent_model_label(ctx.deps.config),
+            label="sub_module_generation",
+            context=sub_module_name,
+        )
+        result = await sub_agent.run(
+            user_prompt,
             deps=ctx.deps,
+        )
+        emit_trace_block(
+            ctx.deps.config,
+            "AGENT RESULT",
+            result.output,
+            model=agent_model_label(ctx.deps.config),
+            label="sub_module_generation",
+            context=sub_module_name,
+        )
+        emit_json_trace_block(
+            ctx.deps.config,
+            "AGENT MESSAGE HISTORY",
+            result.new_messages_json(),
+            model=agent_model_label(ctx.deps.config),
+            label="sub_module_generation",
+            context=sub_module_name,
         )
 
         # remove the sub-module name from the path to current module and the module tree

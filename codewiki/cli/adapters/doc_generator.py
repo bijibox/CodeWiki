@@ -9,14 +9,14 @@ from pathlib import Path
 import asyncio
 import logging
 import os
-import sys
 import time
 from typing import Any, Dict
 
 
-from codewiki.cli.utils.progress import ProgressTracker
+from codewiki.cli.utils.progress import ModuleProgressBar, ProgressTracker
 from codewiki.cli.models.job import DocumentationJob, LLMConfig
 from codewiki.cli.utils.errors import APIError
+from codewiki.cli.utils.logging import create_logger, normalize_verbosity
 
 # Import backend modules
 from codewiki.src.be.documentation_generator import DocumentationGenerator
@@ -36,7 +36,7 @@ class CLIDocumentationGenerator:
         repo_path: Path,
         output_dir: Path,
         config: Dict[str, Any],
-        verbose: bool = False,
+        verbosity: int = 0,
         generate_html: bool = False,
     ):
         """
@@ -46,15 +46,19 @@ class CLIDocumentationGenerator:
             repo_path: Repository path
             output_dir: Output directory
             config: LLM configuration
-            verbose: Enable verbose output
+            verbosity: Verbosity level
             generate_html: Whether to generate HTML viewer
         """
         self.repo_path = repo_path
         self.output_dir = output_dir
         self.config = config
-        self.verbose = verbose
+        self.verbosity = normalize_verbosity(verbosity)
         self.generate_html = generate_html
-        self.progress_tracker = ProgressTracker(total_stages=5, verbose=verbose)
+        self.logger = create_logger(verbosity=self.verbosity, name="codewiki.cli.doc_generator")
+        self.progress_tracker = ProgressTracker(
+            total_stages=5, verbosity=self.verbosity, logger=self.logger
+        )
+        self.module_progress_bar: ModuleProgressBar | None = None
         self.job = DocumentationJob()
 
         # Setup job metadata
@@ -77,45 +81,11 @@ class CLIDocumentationGenerator:
         return value
 
     def _configure_backend_logging(self):
-        """Configure backend logger for CLI use with colored output."""
-        from codewiki.src.be.dependency_analyzer.utils.logging_config import ColoredFormatter
-
-        # Get backend logger (parent of all backend modules)
+        """Ensure backend loggers propagate into the shared CodeWiki logger."""
         backend_logger = logging.getLogger("codewiki.src.be")
-
-        # Remove existing handlers to avoid duplicates
         backend_logger.handlers.clear()
-
-        if self.verbose:
-            # In verbose mode, show INFO and above
-            backend_logger.setLevel(logging.INFO)
-
-            # Create console handler with formatting
-            console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(logging.INFO)
-
-            # Use colored formatter for better readability
-            colored_formatter = ColoredFormatter()
-            console_handler.setFormatter(colored_formatter)
-
-            # Add handler to logger
-            backend_logger.addHandler(console_handler)
-        else:
-            # In non-verbose mode, suppress backend logs (use WARNING level to hide INFO/DEBUG)
-            backend_logger.setLevel(logging.WARNING)
-
-            # Create console handler for warnings and errors only
-            console_handler = logging.StreamHandler(sys.stderr)
-            console_handler.setLevel(logging.WARNING)
-
-            # Use colored formatter even for warnings/errors
-            colored_formatter = ColoredFormatter()
-            console_handler.setFormatter(colored_formatter)
-
-            backend_logger.addHandler(console_handler)
-
-        # Prevent propagation to root logger to avoid duplicate messages
-        backend_logger.propagate = False
+        backend_logger.setLevel(logging.DEBUG)
+        backend_logger.propagate = True
 
     def generate(self) -> DocumentationJob:
         """
@@ -164,6 +134,8 @@ class CLIDocumentationGenerator:
                     agent_instructions if isinstance(agent_instructions, dict) else None
                 ),
                 prompt_name=prompt_name if isinstance(prompt_name, str) else "en",
+                verbosity=self.verbosity,
+                module_progress_callback=self._handle_module_progress,
             )
 
             # Run backend documentation generation
@@ -174,7 +146,9 @@ class CLIDocumentationGenerator:
                 self._run_html_generation()
 
             # Stage 5: Finalization (metadata already created by backend)
+            self.progress_tracker.start_stage(5, "Finalization")
             self._finalize_job()
+            self.progress_tracker.complete_stage()
 
             # Complete job
             time.time() - start_time
@@ -194,13 +168,13 @@ class CLIDocumentationGenerator:
 
         # Stage 1: Dependency Analysis
         self.progress_tracker.start_stage(1, "Dependency Analysis")
-        if self.verbose:
+        if self.verbosity >= 1:
             self.progress_tracker.update_stage(0.2, "Initializing dependency analyzer...")
 
         # Create documentation generator
         doc_generator = DocumentationGenerator(backend_config)
 
-        if self.verbose:
+        if self.verbosity >= 1:
             self.progress_tracker.update_stage(0.5, "Parsing source files...")
 
         # Build dependency graph
@@ -209,8 +183,14 @@ class CLIDocumentationGenerator:
             self.job.statistics.total_files_analyzed = len(components)
             self.job.statistics.leaf_nodes = len(leaf_nodes)
 
-            if self.verbose:
+            if self.verbosity >= 1:
                 self.progress_tracker.update_stage(1.0, f"Found {len(leaf_nodes)} leaf nodes")
+            self.progress_tracker.detail(f"Analyzed {len(components)} components")
+            self.progress_tracker.detail(f"Found {len(leaf_nodes)} leaf nodes")
+            languages = self.config.get("detected_languages")
+            if isinstance(languages, list) and languages:
+                formatted = ", ".join(f"{lang} ({count} files)" for lang, count in languages)
+                self.progress_tracker.detail(f"Detected languages: {formatted}")
         except Exception as e:
             raise APIError(f"Dependency analysis failed: {e}")
 
@@ -218,7 +198,7 @@ class CLIDocumentationGenerator:
 
         # Stage 2: Module Clustering
         self.progress_tracker.start_stage(2, "Module Clustering")
-        if self.verbose:
+        if self.verbosity >= 1:
             self.progress_tracker.update_stage(0.5, "Clustering modules with LLM...")
 
         # Import clustering function
@@ -233,8 +213,10 @@ class CLIDocumentationGenerator:
 
         try:
             if os.path.exists(first_module_tree_path):
+                self.progress_tracker.detail(f"Using cached module tree: {first_module_tree_path}")
                 module_tree = file_manager.load_json(first_module_tree_path)
             else:
+                self.progress_tracker.detail("No cached module tree found; clustering with LLM")
                 module_tree = cluster_modules(leaf_nodes, components, backend_config)
                 file_manager.save_json(module_tree, first_module_tree_path)
 
@@ -244,8 +226,9 @@ class CLIDocumentationGenerator:
             file_manager.save_json(module_tree, module_tree_path)
             self.job.module_count = len(module_tree)
 
-            if self.verbose:
+            if self.verbosity >= 1:
                 self.progress_tracker.update_stage(1.0, f"Created {len(module_tree)} modules")
+            self.progress_tracker.detail(f"Top-level modules: {len(module_tree)}")
         except Exception as e:
             raise APIError(f"Module clustering failed: {e}")
 
@@ -253,14 +236,27 @@ class CLIDocumentationGenerator:
 
         # Stage 3: Documentation Generation
         self.progress_tracker.start_stage(3, "Documentation Generation")
-        if self.verbose:
+        if self.verbosity >= 1:
             self.progress_tracker.update_stage(0.1, "Generating module documentation...")
+        total_modules = (
+            len(doc_generator.get_processing_order(module_tree)) + 1 if module_tree else 1
+        )
+        if self.verbosity >= 2:
+            self.module_progress_bar = ModuleProgressBar(
+                total_modules,
+                verbosity=self.verbosity,
+                logger=self.logger,
+            )
+            self.progress_tracker.detail(f"Planned module steps: {total_modules}")
 
         try:
             # Run the actual documentation generation
             await doc_generator.generate_module_documentation(components, leaf_nodes)
+            if self.module_progress_bar is not None:
+                self.module_progress_bar.finish()
+                self.module_progress_bar = None
 
-            if self.verbose:
+            if self.verbosity >= 1:
                 self.progress_tracker.update_stage(0.9, "Creating repository overview...")
 
             # Create metadata
@@ -270,8 +266,14 @@ class CLIDocumentationGenerator:
             for file_path in os.listdir(working_dir):
                 if file_path.endswith(".md") or file_path.endswith(".json"):
                     self.job.files_generated.append(file_path)
+            self.progress_tracker.detail(
+                f"Generated documentation artifacts: {len(self.job.files_generated)}"
+            )
 
         except Exception as e:
+            if self.module_progress_bar is not None:
+                self.module_progress_bar.finish()
+                self.module_progress_bar = None
             raise APIError(f"Documentation generation failed: {e}")
 
         self.progress_tracker.complete_stage()
@@ -285,7 +287,7 @@ class CLIDocumentationGenerator:
         # Generate HTML
         html_generator = HTMLGenerator()
 
-        if self.verbose:
+        if self.verbosity >= 1:
             self.progress_tracker.update_stage(0.3, "Loading module tree and metadata...")
 
         repo_info = html_generator.detect_repository_info(self.repo_path)
@@ -302,8 +304,9 @@ class CLIDocumentationGenerator:
 
         self.job.files_generated.append("index.html")
 
-        if self.verbose:
+        if self.verbosity >= 1:
             self.progress_tracker.update_stage(1.0, "Generated index.html")
+        self.progress_tracker.detail(f"HTML viewer written to {output_path}")
 
         self.progress_tracker.complete_stage()
 
@@ -315,3 +318,22 @@ class CLIDocumentationGenerator:
             # Create our own if backend didn't
             with open(metadata_path, "w") as f:
                 f.write(self.job.to_json())
+        self.progress_tracker.detail(f"Metadata written to {metadata_path}")
+
+    def _handle_module_progress(self, event: Dict[str, Any]):
+        """Render module progress events in the CLI."""
+        if self.verbosity < 2 or self.module_progress_bar is None:
+            return
+
+        cached = event.get("status") == "cached"
+        self.module_progress_bar.update(
+            str(event.get("module_name", "")),
+            cached=cached,
+            module_type=str(event.get("module_type", "module")),
+            module_path=str(event.get("module_path", event.get("module_name", ""))),
+            status=str(event.get("status", "generated")),
+        )
+
+        error = event.get("error")
+        if error:
+            self.progress_tracker.detail(f"Module error: {error}")

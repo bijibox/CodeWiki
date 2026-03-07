@@ -38,12 +38,13 @@ def test_generate_command_accepts_prompt_name(monkeypatch: MonkeyPatch, tmp_path
             repo_path: Path,
             output_dir: Path,
             config: dict[str, Any],
-            verbose: bool = False,
+            verbosity: int = 0,
             generate_html: bool = False,
         ) -> None:
             captured["repo_path"] = repo_path
             captured["output_dir"] = output_dir
             captured["config"] = config
+            captured["verbosity"] = verbosity
 
         def generate(self) -> SimpleNamespace:
             return SimpleNamespace(
@@ -73,6 +74,93 @@ def test_generate_command_accepts_prompt_name(monkeypatch: MonkeyPatch, tmp_path
     assert result.exit_code == 0, result.output
     assert captured["config"]["prompt_name"] == "en"
     assert Path(captured["output_dir"]) == output_dir.resolve()
+    assert captured["verbosity"] == 0
+
+
+def test_generate_command_passes_verbosity_levels(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeGenerator:
+        def __init__(
+            self,
+            repo_path: Path,
+            output_dir: Path,
+            config: dict[str, Any],
+            verbosity: int = 0,
+            generate_html: bool = False,
+        ) -> None:
+            captured["verbosity"] = verbosity
+            captured["output_dir"] = output_dir
+
+        def generate(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                files_generated=["overview.md"],
+                module_count=1,
+                statistics=SimpleNamespace(total_files_analyzed=1, total_tokens_used=0),
+            )
+
+    monkeypatch.setattr("codewiki.cli.commands.generate.ConfigManager", _FakeConfigManager)
+    monkeypatch.setattr(
+        "codewiki.cli.commands.generate.validate_repository", lambda repo: (repo, [])
+    )
+    monkeypatch.setattr("codewiki.cli.commands.generate.check_writable_output", lambda path: None)
+    monkeypatch.setattr("codewiki.cli.commands.generate.is_git_repository", lambda repo: False)
+    monkeypatch.setattr("codewiki.cli.commands.generate.get_git_commit_hash", lambda repo: None)
+    monkeypatch.setattr("codewiki.cli.commands.generate.get_git_branch", lambda repo: None)
+    monkeypatch.setattr(
+        "codewiki.cli.commands.generate.display_post_generation_instructions",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr("codewiki.cli.commands.generate.CLIDocumentationGenerator", FakeGenerator)
+
+    runner = CliRunner()
+    output_dir = tmp_path / "docs"
+    result = runner.invoke(generate_command, ["-vvv", "--output", str(output_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert captured["verbosity"] == 3
+
+
+def test_generate_command_caps_verbosity_at_three(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeGenerator:
+        def __init__(
+            self,
+            repo_path: Path,
+            output_dir: Path,
+            config: dict[str, Any],
+            verbosity: int = 0,
+            generate_html: bool = False,
+        ) -> None:
+            captured["verbosity"] = verbosity
+
+        def generate(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                files_generated=["overview.md"],
+                module_count=1,
+                statistics=SimpleNamespace(total_files_analyzed=1, total_tokens_used=0),
+            )
+
+    monkeypatch.setattr("codewiki.cli.commands.generate.ConfigManager", _FakeConfigManager)
+    monkeypatch.setattr(
+        "codewiki.cli.commands.generate.validate_repository", lambda repo: (repo, [])
+    )
+    monkeypatch.setattr("codewiki.cli.commands.generate.check_writable_output", lambda path: None)
+    monkeypatch.setattr("codewiki.cli.commands.generate.is_git_repository", lambda repo: False)
+    monkeypatch.setattr("codewiki.cli.commands.generate.get_git_commit_hash", lambda repo: None)
+    monkeypatch.setattr("codewiki.cli.commands.generate.get_git_branch", lambda repo: None)
+    monkeypatch.setattr(
+        "codewiki.cli.commands.generate.display_post_generation_instructions",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr("codewiki.cli.commands.generate.CLIDocumentationGenerator", FakeGenerator)
+
+    runner = CliRunner()
+    result = runner.invoke(generate_command, ["-vvvv"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["verbosity"] == 3
 
 
 def test_generate_command_rejects_unknown_prompt_name():

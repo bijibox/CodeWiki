@@ -134,10 +134,13 @@ codewiki generate --create-branch
 codewiki generate --github-pages
 
 # Enable verbose logging
-codewiki generate --verbose
+codewiki generate -v
+
+# Show detailed phase and module progress
+codewiki generate -vv
 
 # Full-featured generation
-codewiki generate --create-branch --github-pages --verbose
+codewiki generate --create-branch --github-pages -vv
 ```
 
 ### Customization Options

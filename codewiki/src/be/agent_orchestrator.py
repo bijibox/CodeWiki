@@ -44,6 +44,7 @@ from codewiki.src.be.agent_tools.generate_sub_module_documentations import (
     generate_sub_module_documentation_tool,
 )
 from codewiki.src.be.llm_services import create_fallback_models
+from codewiki.src.be.tracing import agent_model_label, emit_json_trace_block, emit_trace_block
 from codewiki.src.be.utils import is_complex_module
 from codewiki.src.config import (
     Config,
@@ -68,6 +69,17 @@ class AgentOrchestrator:
         """Create an appropriate agent based on module complexity."""
 
         if is_complex_module(components, core_component_ids):
+            system_prompt = self.config.prompts.build_system_prompt(
+                module_name, self.custom_instructions
+            )
+            emit_trace_block(
+                self.config,
+                "AGENT SYSTEM PROMPT",
+                system_prompt,
+                model=agent_model_label(self.config),
+                label="module_generation",
+                context=module_name,
+            )
             return Agent[CodeWikiDeps, str](
                 self.fallback_models,
                 name=module_name,
@@ -77,19 +89,26 @@ class AgentOrchestrator:
                     str_replace_editor_tool,
                     generate_sub_module_documentation_tool,
                 ],
-                system_prompt=self.config.prompts.build_system_prompt(
-                    module_name, self.custom_instructions
-                ),
+                system_prompt=system_prompt,
             )
         else:
+            system_prompt = self.config.prompts.build_leaf_system_prompt(
+                module_name, self.custom_instructions
+            )
+            emit_trace_block(
+                self.config,
+                "AGENT SYSTEM PROMPT",
+                system_prompt,
+                model=agent_model_label(self.config),
+                label="module_generation",
+                context=module_name,
+            )
             return Agent[CodeWikiDeps, str](
                 self.fallback_models,
                 name=module_name,
                 deps_type=CodeWikiDeps,
                 tools=[read_code_components_tool, str_replace_editor_tool],
-                system_prompt=self.config.prompts.build_leaf_system_prompt(
-                    module_name, self.custom_instructions
-                ),
+                system_prompt=system_prompt,
             )
 
     async def process_module(
@@ -99,7 +118,7 @@ class AgentOrchestrator:
         core_component_ids: List[str],
         module_path: List[str],
         working_dir: str,
-    ) -> Dict[str, Any]:
+    ) -> tuple[Dict[str, Any], str]:
         """Process a single module and generate its documentation."""
         logger.info(f"Processing module: {module_name}")
 
@@ -129,31 +148,56 @@ class AgentOrchestrator:
         overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
         if os.path.exists(overview_docs_path):
             logger.info(f"✓ Overview docs already exists at {overview_docs_path}")
-            return module_tree
+            return module_tree, "cached"
 
         # check if module docs already exists
         docs_path = os.path.join(working_dir, f"{module_name}.md")
         if os.path.exists(docs_path):
             logger.info(f"✓ Module docs already exists at {docs_path}")
-            return module_tree
+            return module_tree, "cached"
 
         # Run agent
         try:
-            await agent.run(
-                self.config.prompts.build_user_prompt(
-                    module_name=module_name,
-                    core_component_ids=core_component_ids,
-                    components=components,
-                    module_tree=deps.module_tree,
-                ),
+            user_prompt = self.config.prompts.build_user_prompt(
+                module_name=module_name,
+                core_component_ids=core_component_ids,
+                components=components,
+                module_tree=deps.module_tree,
+            )
+            emit_trace_block(
+                self.config,
+                "AGENT USER PROMPT",
+                user_prompt,
+                model=agent_model_label(self.config),
+                label="module_generation",
+                context=module_name,
+            )
+            result = await agent.run(
+                user_prompt,
                 deps=deps,
+            )
+            emit_trace_block(
+                self.config,
+                "AGENT RESULT",
+                result.output,
+                model=agent_model_label(self.config),
+                label="module_generation",
+                context=module_name,
+            )
+            emit_json_trace_block(
+                self.config,
+                "AGENT MESSAGE HISTORY",
+                result.new_messages_json(),
+                model=agent_model_label(self.config),
+                label="module_generation",
+                context=module_name,
             )
 
             # Save updated module tree
             file_manager.save_json(deps.module_tree, module_tree_path)
             logger.debug(f"Successfully processed module: {module_name}")
 
-            return deps.module_tree
+            return deps.module_tree, "generated"
 
         except Exception as e:
             logger.error(f"Error processing module {module_name}: {str(e)}")

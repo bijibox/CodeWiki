@@ -262,7 +262,13 @@ graph TB
 
 ```bash
 # CLI
-codewiki generate --verbose
+codewiki generate -v
+
+# Detailed progress
+codewiki generate -vv
+
+# Full prompt and response tracing
+codewiki generate -vvv
 
 # Environment variable
 export CODEWIKI_LOG_LEVEL=DEBUG
@@ -294,4 +300,3 @@ export CODEWIKI_LOG_LEVEL=DEBUG
 For development questions:
 - GitHub Issues: https://github.com/FSoft-AI4Code/CodeWiki/issues
 - Main Documentation: [README.md](README.md)
-

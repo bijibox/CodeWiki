@@ -2,9 +2,12 @@
 Progress indicator utilities for CLI.
 """
 
+from __future__ import annotations
+
 import time
 from typing import Optional
-import click
+
+from codewiki.cli.utils.logging import CLILogger, create_logger, normalize_verbosity
 
 
 class ProgressTracker:
@@ -19,13 +22,12 @@ class ProgressTracker:
     5. Finalization (5% of time)
     """
 
-    # Stage weights (percentage of total time)
     STAGE_WEIGHTS = {
-        1: 0.40,  # Dependency Analysis
-        2: 0.20,  # Module Clustering
-        3: 0.30,  # Documentation Generation
-        4: 0.05,  # HTML Generation (optional)
-        5: 0.05,  # Finalization
+        1: 0.40,
+        2: 0.20,
+        3: 0.30,
+        4: 0.05,
+        5: 0.05,
     }
 
     STAGE_NAMES = {
@@ -36,107 +38,84 @@ class ProgressTracker:
         5: "Finalization",
     }
 
-    def __init__(self, total_stages: int = 5, verbose: bool = False):
-        """
-        Initialize progress tracker.
-
-        Args:
-            total_stages: Number of stages
-            verbose: Enable verbose output
-        """
+    def __init__(
+        self,
+        total_stages: int = 5,
+        verbosity: int = 0,
+        logger: CLILogger | None = None,
+    ):
         self.total_stages = total_stages
         self.current_stage = 0
         self.stage_progress = 0.0
         self.start_time = time.time()
-        self.verbose = verbose
+        self.verbosity = normalize_verbosity(verbosity)
         self.current_stage_start = self.start_time
+        self.logger = logger or create_logger(
+            verbosity=self.verbosity, name="codewiki.cli.progress"
+        )
 
     def start_stage(self, stage: int, description: Optional[str] = None):
-        """
-        Start a new stage.
-
-        Args:
-            stage: Stage number (1-5)
-            description: Optional custom description
-        """
         self.current_stage = stage
         self.stage_progress = 0.0
         self.current_stage_start = time.time()
 
         stage_name = description or self.STAGE_NAMES.get(stage, f"Stage {stage}")
-
-        if self.verbose:
-            elapsed = self._format_elapsed()
-            click.secho(
-                f"\n[{elapsed}] Phase {stage}/{self.total_stages}: {stage_name}",
-                fg="blue",
-                bold=True,
-            )
-        else:
-            click.secho(f"[{stage}/{self.total_stages}] {stage_name}", fg="blue", bold=True)
+        elapsed = self._format_elapsed()
+        gate = 1 if self.verbosity >= 1 else 0
+        self.logger.progress_stage(
+            stage_name,
+            step=stage,
+            total=self.total_stages,
+            elapsed=elapsed,
+            verbosity_gate=gate,
+        )
 
     def update_stage(self, progress: float, message: Optional[str] = None):
-        """
-        Update progress within current stage.
-
-        Args:
-            progress: Progress percentage (0.0 to 1.0)
-            message: Optional progress message
-        """
         self.stage_progress = min(1.0, max(0.0, progress))
 
-        if self.verbose and message:
-            elapsed = self._format_elapsed()
-            click.echo(f"[{elapsed}]   {message}")
+        if self.verbosity >= 1 and message:
+            self.logger.progress_update(message, elapsed=self._format_elapsed(), verbosity_gate=1)
 
     def complete_stage(self, message: Optional[str] = None):
-        """
-        Complete current stage.
-
-        Args:
-            message: Optional completion message
-        """
         self.stage_progress = 1.0
 
-        if self.verbose:
-            elapsed = self._format_elapsed()
+        if self.verbosity >= 1:
             stage_time = time.time() - self.current_stage_start
             stage_name = self.STAGE_NAMES.get(self.current_stage, f"Stage {self.current_stage}")
-            click.secho(f"[{elapsed}]   {stage_name} complete ({stage_time:.1f}s)", fg="green")
+            self.logger.progress_complete(
+                stage_name + " complete",
+                elapsed=self._format_elapsed(),
+                stage_time=stage_time,
+                verbosity_gate=1,
+            )
             if message:
-                click.echo(f"[{elapsed}]   {message}")
+                self.logger.progress_update(
+                    message, elapsed=self._format_elapsed(), verbosity_gate=1
+                )
+
+    def detail(self, message: str, min_verbosity: int = 2):
+        if self.verbosity >= min_verbosity:
+            self.logger.progress_update(
+                message,
+                elapsed=self._format_elapsed(),
+                verbosity_gate=min_verbosity,
+            )
 
     def get_overall_progress(self) -> float:
-        """
-        Get overall progress percentage.
-
-        Returns:
-            Progress (0.0 to 1.0)
-        """
         completed_weight = sum(self.STAGE_WEIGHTS.get(s, 0) for s in range(1, self.current_stage))
-
         current_weight = self.STAGE_WEIGHTS.get(self.current_stage, 0) * self.stage_progress
-
         return completed_weight + current_weight
 
     def _format_elapsed(self) -> str:
-        """Format elapsed time."""
         elapsed = time.time() - self.start_time
         minutes = int(elapsed // 60)
         seconds = int(elapsed % 60)
 
         if minutes > 0:
             return f"{minutes:02d}:{seconds:02d}"
-        else:
-            return f"00:{seconds:02d}"
+        return f"00:{seconds:02d}"
 
     def get_eta(self) -> Optional[str]:
-        """
-        Estimate time remaining.
-
-        Returns:
-            ETA string or None if cannot estimate
-        """
         elapsed = time.time() - self.start_time
         progress = self.get_overall_progress()
 
@@ -156,55 +135,58 @@ class ProgressTracker:
             hours = minutes // 60
             minutes = minutes % 60
             return f"{hours}h {minutes}m"
-        elif minutes > 0:
+        if minutes > 0:
             return f"{minutes}m {seconds}s"
-        else:
-            return f"{seconds}s"
+        return f"{seconds}s"
 
 
 class ModuleProgressBar:
-    """Progress bar for module-by-module generation."""
+    """Deterministic module progress reporter."""
 
-    def __init__(self, total_modules: int, verbose: bool = False):
-        """
-        Initialize module progress bar.
-
-        Args:
-            total_modules: Total number of modules to process
-            verbose: Enable verbose output
-        """
+    def __init__(
+        self,
+        total_modules: int,
+        verbosity: int = 0,
+        logger: CLILogger | None = None,
+    ):
         self.total_modules = total_modules
         self.current_module = 0
-        self.verbose = verbose
-        self.bar = None
+        self.verbosity = normalize_verbosity(verbosity)
+        self.logger = logger or create_logger(
+            verbosity=self.verbosity, name="codewiki.cli.module_progress"
+        )
 
-        if not verbose:
-            self.bar = click.progressbar(
-                length=total_modules,
-                label="Generating modules",
-                show_eta=True,
-                show_percent=True,
-            )
-            self.bar.__enter__()
-
-    def update(self, module_name: str, cached: bool = False):
-        """
-        Update progress for a module.
-
-        Args:
-            module_name: Name of the module
-            cached: Whether the module was loaded from cache
-        """
+    def update(
+        self,
+        module_name: str,
+        cached: bool = False,
+        *,
+        module_type: str | None = None,
+        module_path: str | None = None,
+        status: str | None = None,
+    ):
         self.current_module += 1
+        resolved_status = status or ("cached" if cached else "generated")
 
-        if self.verbose:
-            status = "✓ (cached)" if cached else "⟳ (generating)"
-            click.echo(f"  [{self.current_module}/{self.total_modules}] {module_name}... {status}")
-        elif self.bar:
-            self.bar.update(1)
+        if self.verbosity >= 2:
+            self.logger.module_progress(
+                current=self.current_module,
+                total=self.total_modules,
+                module_type=module_type or "module",
+                module_path=module_path or module_name,
+                status=resolved_status,
+                verbosity_gate=2,
+            )
+        elif self.verbosity >= 1:
+            display_status = "✓ (cached)" if cached else "⟳ (generating)"
+            self.logger.module_progress(
+                current=self.current_module,
+                total=self.total_modules,
+                module_type="module",
+                module_path=f"{module_name}... {display_status}",
+                status="",
+                verbosity_gate=1,
+            )
 
     def finish(self):
-        """Finish progress bar."""
-        if self.bar:
-            self.bar.__exit__(None, None, None)
-            self.bar = None
+        """Keep compatibility with the previous API."""
