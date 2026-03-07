@@ -77,10 +77,16 @@ async def test_validate_mermaid_diagrams_reports_success(monkeypatch, tmp_path):
     md_file = tmp_path / "docs.md"
     md_file.write_text("```mermaid\ngraph TD\nA --> B\n```", encoding="utf-8")
 
-    async def fake_validate_single_diagram(diagram_content, diagram_num, line_start):
+    async def fake_validate_single_diagram(
+        diagram_content,
+        diagram_num,
+        line_start,
+        mermaid_validator,
+    ):
         assert diagram_content == "graph TD\nA --> B"
         assert diagram_num == 1
         assert line_start == 1
+        assert mermaid_validator == "mermaid_parser_py"
         return ""
 
     monkeypatch.setattr(be_utils, "validate_single_diagram", fake_validate_single_diagram)
@@ -95,7 +101,13 @@ async def test_validate_mermaid_diagrams_collects_errors(monkeypatch, tmp_path):
     md_file = tmp_path / "docs.md"
     md_file.write_text("```mermaid\ngraph TD\nA --> B\n```", encoding="utf-8")
 
-    async def fake_validate_single_diagram(diagram_content, diagram_num, line_start):
+    async def fake_validate_single_diagram(
+        diagram_content,
+        diagram_num,
+        line_start,
+        mermaid_validator,
+    ):
+        assert mermaid_validator == "mermaid_parser_py"
         return "Diagram 1: Parse error on line 3"
 
     monkeypatch.setattr(be_utils, "validate_single_diagram", fake_validate_single_diagram)
@@ -107,23 +119,20 @@ async def test_validate_mermaid_diagrams_collects_errors(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_validate_single_diagram_suppresses_mermaid_import_warning(
+async def test_validate_single_diagram_suppresses_mermaid_parser_import_warning(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ):
     original_import = builtins.__import__
 
-    class FakeMermaidModule:
-        class Mermaid:
-            def __init__(self, diagram_content: str):
-                self.svg_response = SimpleNamespace(text="")
+    async def fake_parse_mermaid_py(diagram_content: str) -> dict:
+        assert diagram_content == "graph TD\nA --> B"
+        return {}
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "mermaid_parser.parser":
-            raise ImportError("parser unavailable")
-        if name == "mermaid":
             print("Warning: IPython is not installed. Mermaidjs magic function is not available.")
-            return FakeMermaidModule()
+            return SimpleNamespace(parse_mermaid_py=fake_parse_mermaid_py)
         return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
@@ -133,3 +142,27 @@ async def test_validate_single_diagram_suppresses_mermaid_import_warning(
     captured = capsys.readouterr()
     assert result == ""
     assert captured.out == ""
+
+
+@pytest.mark.asyncio
+async def test_validate_single_diagram_uses_mermaid_ink_api(monkeypatch: pytest.MonkeyPatch):
+    class FakeResponse:
+        status_code = 400
+        text = (
+            "Parse error on line 2:\ngraph TDA - -> B\n----------^\n"
+            "Expecting 'SEMI', got 'NODE_STRING'"
+        )
+
+        def raise_for_status(self) -> None:
+            raise AssertionError("raise_for_status should not be called for 400 parse errors")
+
+    monkeypatch.setattr(be_utils.requests, "get", lambda *args, **kwargs: FakeResponse())
+
+    result = await be_utils.validate_single_diagram(
+        "graph TD\nA - -> B",
+        1,
+        1,
+        mermaid_validator="mermaid_ink_api",
+    )
+
+    assert "Diagram 1: Parse error on line 3" in result

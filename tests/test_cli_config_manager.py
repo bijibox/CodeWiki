@@ -19,7 +19,7 @@ class _FakeKeyring:
         self.values.pop((service, account), None)
 
 
-def test_configuration_to_dict_includes_fallback_model() -> None:
+def test_configuration_to_dict_includes_mermaid_validator() -> None:
     from codewiki.cli.models.config import Configuration
 
     config = Configuration(
@@ -27,12 +27,16 @@ def test_configuration_to_dict_includes_fallback_model() -> None:
         main_model="main-model",
         cluster_model="cluster-model",
         fallback_model="fallback-model",
+        mermaid_validator="mermaid_ink_api",
     )
 
     assert config.to_dict()["fallback_model"] == "fallback-model"
+    assert config.to_dict()["mermaid_validator"] == "mermaid_ink_api"
 
 
-def test_config_manager_persists_fallback_model(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_config_manager_persists_mermaid_validator(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     fake_keyring = _FakeKeyring()
     config_dir = tmp_path / ".codewiki"
     config_file = config_dir / "config.json"
@@ -56,6 +60,7 @@ def test_config_manager_persists_fallback_model(monkeypatch: MonkeyPatch, tmp_pa
         main_model="main-model",
         cluster_model="cluster-model",
         fallback_model="fallback-model",
+        mermaid_validator="mermaid_ink_api",
     )
 
     reloaded = ConfigManager()
@@ -64,4 +69,6 @@ def test_config_manager_persists_fallback_model(monkeypatch: MonkeyPatch, tmp_pa
     config = reloaded.get_config()
     assert config is not None
     assert config.fallback_model == "fallback-model"
+    assert config.mermaid_validator == "mermaid_ink_api"
     assert '"fallback_model": "fallback-model"' in config_file.read_text(encoding="utf-8")
+    assert '"mermaid_validator": "mermaid_ink_api"' in config_file.read_text(encoding="utf-8")

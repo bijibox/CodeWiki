@@ -415,6 +415,7 @@ def generate_command(
                 "main_model": config.main_model,
                 "cluster_model": config.cluster_model,
                 "fallback_model": config.fallback_model,
+                "mermaid_validator": config.mermaid_validator,
                 "base_url": config.base_url,
                 "api_key": api_key,
                 "agent_instructions": agent_instructions_dict,

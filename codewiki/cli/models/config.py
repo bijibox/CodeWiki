@@ -10,9 +10,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping
 
 from codewiki.cli.utils.validation import (
+    validate_mermaid_validator,
     validate_url,
     validate_model_name,
 )
+from codewiki.src.config import DEFAULT_MERMAID_VALIDATOR
 
 if TYPE_CHECKING:
     from codewiki.src.config import Config
@@ -138,6 +140,7 @@ class Configuration:
     main_model: str
     cluster_model: str
     fallback_model: str = "glm-4p5"
+    mermaid_validator: str = DEFAULT_MERMAID_VALIDATOR
     default_output: str = "docs"
     max_tokens: int = 32768
     max_token_per_module: int = 36369
@@ -156,6 +159,7 @@ class Configuration:
         validate_model_name(self.main_model)
         validate_model_name(self.cluster_model)
         validate_model_name(self.fallback_model)
+        validate_mermaid_validator(self.mermaid_validator)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
@@ -164,6 +168,7 @@ class Configuration:
             "main_model": self.main_model,
             "cluster_model": self.cluster_model,
             "fallback_model": self.fallback_model,
+            "mermaid_validator": self.mermaid_validator,
             "default_output": self.default_output,
             "max_tokens": self.max_tokens,
             "max_token_per_module": self.max_token_per_module,
@@ -194,6 +199,7 @@ class Configuration:
             main_model=data.get("main_model", ""),
             cluster_model=data.get("cluster_model", ""),
             fallback_model=data.get("fallback_model", "glm-4p5"),
+            mermaid_validator=data.get("mermaid_validator", DEFAULT_MERMAID_VALIDATOR),
             default_output=data.get("default_output", "docs"),
             max_tokens=data.get("max_tokens", 32768),
             max_token_per_module=data.get("max_token_per_module", 36369),
@@ -256,6 +262,7 @@ class Configuration:
             main_model=self.main_model,
             cluster_model=self.cluster_model,
             fallback_model=self.fallback_model,
+            mermaid_validator=self.mermaid_validator,
             max_tokens=self.max_tokens,
             max_token_per_module=self.max_token_per_module,
             max_token_per_leaf_module=self.max_token_per_leaf_module,

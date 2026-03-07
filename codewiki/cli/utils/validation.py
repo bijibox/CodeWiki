@@ -7,6 +7,7 @@ from typing import List, Tuple
 from urllib.parse import urlparse
 
 from codewiki.cli.utils.errors import ConfigurationError, RepositoryError
+from codewiki.src.config import DEFAULT_MERMAID_VALIDATOR, MERMAID_VALIDATORS
 
 
 def validate_url(url: str, require_https: bool = False, allow_localhost: bool = True) -> str:
@@ -92,6 +93,29 @@ def validate_model_name(model: str) -> str:
         raise ConfigurationError("Model name cannot be empty")
 
     return model.strip()
+
+
+def validate_mermaid_validator(validator: str) -> str:
+    """
+    Validate Mermaid validation backend name.
+
+    Args:
+        validator: Mermaid validation backend identifier
+
+    Returns:
+        Validated backend identifier
+
+    Raises:
+        ConfigurationError: If backend is invalid
+    """
+    normalized = validator.strip()
+    if normalized not in MERMAID_VALIDATORS:
+        allowed = ", ".join(MERMAID_VALIDATORS)
+        raise ConfigurationError(
+            f"Unsupported mermaid validator '{validator}'. "
+            f"Allowed values: {allowed}. Default: {DEFAULT_MERMAID_VALIDATOR}"
+        )
+    return normalized
 
 
 def validate_output_directory(path: str) -> Path:

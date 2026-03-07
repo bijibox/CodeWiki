@@ -14,10 +14,12 @@ from codewiki.cli.utils.errors import ConfigurationError, handle_error, EXIT_CON
 from codewiki.cli.utils.validation import (
     validate_url,
     validate_api_key,
+    validate_mermaid_validator,
     validate_model_name,
     is_top_tier_model,
     mask_api_key,
 )
+from codewiki.src.config import DEFAULT_MERMAID_VALIDATOR, MERMAID_VALIDATORS
 
 
 def parse_patterns(patterns_str: str) -> list[str]:
@@ -25,6 +27,15 @@ def parse_patterns(patterns_str: str) -> list[str]:
     if not patterns_str:
         return []
     return [p.strip() for p in patterns_str.split(",") if p.strip()]
+
+
+def format_mermaid_validator(value: str) -> str:
+    """Render Mermaid validator names with a short explanation."""
+    descriptions = {
+        "mermaid_parser_py": "mermaid_parser_py (local parser via mermaid-parser-py)",
+        "mermaid_ink_api": "mermaid_ink_api (HTTP call to https://mermaid.ink/svg/...)",
+    }
+    return descriptions.get(value, value)
 
 
 @click.group(name="config")
@@ -39,6 +50,15 @@ def config_group():
 @click.option("--main-model", type=str, help="Primary model for documentation generation")
 @click.option("--cluster-model", type=str, help="Model for module clustering (recommend top-tier)")
 @click.option("--fallback-model", type=str, help="Fallback model for documentation generation")
+@click.option(
+    "--mermaid-validator",
+    type=click.Choice(MERMAID_VALIDATORS, case_sensitive=False),
+    help=(
+        "Mermaid validation backend: "
+        "'mermaid_parser_py' (local parser, default) or "
+        "'mermaid_ink_api' (HTTP call to https://mermaid.ink/svg/...)"
+    ),
+)
 @click.option("--max-tokens", type=int, help="Maximum tokens for LLM response (default: 32768)")
 @click.option(
     "--max-token-per-module",
@@ -57,6 +77,7 @@ def config_set(
     main_model: Optional[str],
     cluster_model: Optional[str],
     fallback_model: Optional[str],
+    mermaid_validator: Optional[str],
     max_tokens: Optional[int],
     max_token_per_module: Optional[int],
     max_token_per_leaf_module: Optional[int],
@@ -76,6 +97,10 @@ def config_set(
     # Set all configuration
     $ codewiki config set --api-key sk-abc123 --base-url https://api.anthropic.com \\
         --main-model claude-sonnet-4 --cluster-model claude-sonnet-4 --fallback-model glm-4p5
+
+    \b
+    # Use direct Mermaid Ink API validation instead of local mermaid-parser-py
+    $ codewiki config set --mermaid-validator mermaid_ink_api
     
     \b
     # Update only API key
@@ -102,6 +127,7 @@ def config_set(
                 main_model,
                 cluster_model,
                 fallback_model,
+                mermaid_validator,
                 max_tokens,
                 max_token_per_module,
                 max_token_per_leaf_module,
@@ -128,6 +154,9 @@ def config_set(
 
         if fallback_model:
             validated_data["fallback_model"] = validate_model_name(fallback_model)
+
+        if mermaid_validator:
+            validated_data["mermaid_validator"] = validate_mermaid_validator(mermaid_validator)
 
         if max_tokens is not None:
             if max_tokens < 1:
@@ -174,6 +203,11 @@ def config_set(
             fallback_model_value if isinstance(fallback_model_value, str) else None
         )
 
+        mermaid_validator_value = validated_data.get("mermaid_validator")
+        validated_mermaid_validator: str | None = (
+            mermaid_validator_value if isinstance(mermaid_validator_value, str) else None
+        )
+
         max_tokens_value = validated_data.get("max_tokens")
         validated_max_tokens: int | None = (
             max_tokens_value if isinstance(max_tokens_value, int) else None
@@ -202,6 +236,7 @@ def config_set(
             main_model=validated_main_model,
             cluster_model=validated_cluster_model,
             fallback_model=validated_fallback_model,
+            mermaid_validator=validated_mermaid_validator,
             max_tokens=validated_max_tokens,
             max_token_per_module=validated_max_token_per_module,
             max_token_per_leaf_module=validated_max_token_per_leaf_module,
@@ -241,6 +276,12 @@ def config_set(
 
         if fallback_model:
             click.secho(f"✓ Fallback model: {fallback_model}", fg="green")
+
+        if mermaid_validator:
+            click.secho(
+                f"✓ Mermaid validator: {format_mermaid_validator(mermaid_validator)}",
+                fg="green",
+            )
 
         if max_tokens:
             click.secho(f"✓ Max tokens: {max_tokens}", fg="green")
@@ -306,6 +347,9 @@ def config_show(output_json: bool):
                 "main_model": config.main_model if config else "",
                 "cluster_model": config.cluster_model if config else "",
                 "fallback_model": config.fallback_model if config else "glm-4p5",
+                "mermaid_validator": (
+                    config.mermaid_validator if config else DEFAULT_MERMAID_VALIDATOR
+                ),
                 "default_output": config.default_output if config else "docs",
                 "max_tokens": config.max_tokens if config else 32768,
                 "max_token_per_module": config.max_token_per_module if config else 36369,
@@ -340,6 +384,9 @@ def config_show(output_json: bool):
                 click.echo(f"  Main Model:       {config.main_model or 'Not set'}")
                 click.echo(f"  Cluster Model:    {config.cluster_model or 'Not set'}")
                 click.echo(f"  Fallback Model:   {config.fallback_model or 'Not set'}")
+                click.echo(
+                    "  Mermaid Validator: " f"{format_mermaid_validator(config.mermaid_validator)}"
+                )
             else:
                 click.secho("  Not configured", fg="yellow")
 
@@ -488,9 +535,17 @@ def config_validate(quick: bool, verbose: bool):
             click.echo(f"      Main model: {config.main_model}")
             click.echo(f"      Cluster model: {config.cluster_model}")
             click.echo(f"      Fallback model: {config.fallback_model}")
+            click.echo(
+                f"      Mermaid validator: {format_mermaid_validator(config.mermaid_validator)}"
+            )
 
-        if not config.main_model or not config.cluster_model or not config.fallback_model:
-            click.secho("✗ Models not configured", fg="red")
+        if (
+            not config.main_model
+            or not config.cluster_model
+            or not config.fallback_model
+            or not config.mermaid_validator
+        ):
+            click.secho("✗ Required generation settings are not configured", fg="red")
             sys.exit(EXIT_CONFIG_ERROR)
 
         if verbose:
@@ -499,6 +554,11 @@ def config_validate(quick: bool, verbose: bool):
             click.secho(f"✓ Main model configured: {config.main_model}", fg="green")
             click.secho(f"✓ Cluster model configured: {config.cluster_model}", fg="green")
             click.secho(f"✓ Fallback model configured: {config.fallback_model}", fg="green")
+            click.secho(
+                "✓ Mermaid validator configured: "
+                f"{format_mermaid_validator(config.mermaid_validator)}",
+                fg="green",
+            )
 
         # Warn about non-top-tier cluster model
         if not is_top_tier_model(config.cluster_model):

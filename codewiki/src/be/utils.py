@@ -1,12 +1,16 @@
 import contextlib
 import io
+import base64
 import re
 from pathlib import Path
 import logging
 import traceback
-from typing import List, Mapping, Protocol, Sequence, Tuple
+from typing import Iterator, List, Mapping, Protocol, Sequence, Tuple
 
+import requests
 import tiktoken
+
+from codewiki.src.config import DEFAULT_MERMAID_VALIDATOR
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +59,20 @@ def count_tokens(text: str) -> int:
 # ------------------------------------------------------------
 
 
-async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> str:
+@contextlib.contextmanager
+def suppress_output() -> Iterator[None]:
+    with (
+        contextlib.redirect_stdout(io.StringIO()),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
+        yield
+
+
+async def validate_mermaid_diagrams(
+    md_file_path: str,
+    relative_path: str,
+    mermaid_validator: str = DEFAULT_MERMAID_VALIDATOR,
+) -> str:
     """
     Validate all Mermaid diagrams in a markdown file.
 
@@ -84,7 +101,12 @@ async def validate_mermaid_diagrams(md_file_path: str, relative_path: str) -> st
         # Validate each mermaid diagram sequentially to avoid segfaults
         errors: list[str] = []
         for i, (line_start, diagram_content) in enumerate(mermaid_blocks, 1):
-            error_msg = await validate_single_diagram(diagram_content, i, line_start)
+            error_msg = await validate_single_diagram(
+                diagram_content,
+                i,
+                line_start,
+                mermaid_validator=mermaid_validator,
+            )
             if error_msg:
                 errors.append("\n")
                 errors.append(error_msg)
@@ -139,7 +161,12 @@ def extract_mermaid_blocks(content: str) -> List[Tuple[int, str]]:
     return mermaid_blocks
 
 
-async def validate_single_diagram(diagram_content: str, diagram_num: int, line_start: int) -> str:
+async def validate_single_diagram(
+    diagram_content: str,
+    diagram_num: int,
+    line_start: int,
+    mermaid_validator: str = DEFAULT_MERMAID_VALIDATOR,
+) -> str:
     """
     Validate a single mermaid diagram.
 
@@ -151,60 +178,18 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     Returns:
         Error message if invalid, empty string if valid
     """
-    import sys
-    import os
-
-    core_error = ""
-
     try:
-        from mermaid_parser.parser import parse_mermaid_py
-
-        # logger.debug("Using mermaid-parser-py to validate mermaid diagrams")
-
-        try:
-            # Redirect stderr to suppress mermaid parser JavaScript errors
-            old_stderr = sys.stderr
-            sys.stderr = open(os.devnull, "w")
-
-            try:
-                await parse_mermaid_py(diagram_content)
-            finally:
-                # Restore stderr
-                sys.stderr.close()
-                sys.stderr = old_stderr
-        except Exception as e:
-            error_str = str(e)
-
-            # Extract the core error information from the exception message
-            # Look for the pattern that contains "Parse error on line X:"
-            error_pattern = r"Error:(.*?)(?=Stack Trace:|$)"
-            match = re.search(error_pattern, error_str, re.DOTALL)
-
-            if match:
-                core_error = match.group(0).strip()
-                core_error = core_error
-            else:
-                logger.error(
-                    f"No match found for error pattern, fallback to mermaid-py\n{error_str}"
-                )
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                raise Exception(error_str)
-
-    except Exception:
-        logger.warning("Using mermaid-py to validate mermaid diagrams")
-        try:
-            with (
-                contextlib.redirect_stdout(io.StringIO()),
-                contextlib.redirect_stderr(io.StringIO()),
-            ):
-                import mermaid as md
-
-            # Create Mermaid object and check response
-            render = md.Mermaid(diagram_content)
-            core_error = render.svg_response.text
-
-        except Exception as e:
-            return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
+        if mermaid_validator == "mermaid_parser_py":
+            core_error = await validate_single_diagram_with_mermaid_parser(diagram_content)
+        elif mermaid_validator == "mermaid_ink_api":
+            core_error = await validate_single_diagram_with_mermaid_ink_api(diagram_content)
+        else:
+            return (
+                f"  Diagram {diagram_num}: Exception during validation - "
+                f"Unsupported mermaid validator: {mermaid_validator}"
+            )
+    except Exception as e:
+        return f"  Diagram {diagram_num}: Exception during validation - {str(e)}"
 
     # Check if response indicates a parse error
     if core_error:
@@ -219,6 +204,49 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
             return f"Diagram {diagram_num}: {core_error}"
 
     return ""  # No error
+
+
+async def validate_single_diagram_with_mermaid_parser(diagram_content: str) -> str:
+    import os
+    import sys
+
+    with suppress_output():
+        from mermaid_parser.parser import parse_mermaid_py
+
+    try:
+        old_stderr = sys.stderr
+        sys.stderr = open(os.devnull, "w")
+        try:
+            await parse_mermaid_py(diagram_content)
+        finally:
+            sys.stderr.close()
+            sys.stderr = old_stderr
+        return ""
+    except Exception as e:
+        error_str = str(e)
+        error_pattern = r"Error:(.*?)(?=Stack Trace:|$)"
+        match = re.search(error_pattern, error_str, re.DOTALL)
+
+        if match:
+            return match.group(0).strip()
+
+        logger.error(f"Unable to parse mermaid-parser-py error output\n{error_str}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise Exception(error_str)
+
+
+async def validate_single_diagram_with_mermaid_ink_api(diagram_content: str) -> str:
+    encoded_diagram = base64.urlsafe_b64encode(diagram_content.encode("utf-8")).decode("ascii")
+    response = requests.get(f"https://mermaid.ink/svg/{encoded_diagram}", timeout=20)
+
+    if response.status_code == 200:
+        return ""
+
+    if response.status_code == 400:
+        return response.text.strip()
+
+    response.raise_for_status()
+    return ""
 
 
 if __name__ == "__main__":

@@ -92,6 +92,7 @@ class ConfigManager:
         main_model: Optional[str] = None,
         cluster_model: Optional[str] = None,
         fallback_model: Optional[str] = None,
+        mermaid_validator: Optional[str] = None,
         default_output: Optional[str] = None,
         max_tokens: Optional[int] = None,
         max_token_per_module: Optional[int] = None,
@@ -107,6 +108,7 @@ class ConfigManager:
             main_model: Primary model
             cluster_model: Clustering model
             fallback_model: Fallback model
+            mermaid_validator: Mermaid validation backend
             default_output: Default output directory
             max_tokens: Maximum tokens for LLM response
             max_token_per_module: Maximum tokens per module for clustering
@@ -131,6 +133,7 @@ class ConfigManager:
                     main_model="",
                     cluster_model="",
                     fallback_model="glm-4p5",
+                    mermaid_validator="mermaid_parser_py",
                     default_output="docs",
                     agent_instructions=AgentInstructions(),
                 )
@@ -146,6 +149,8 @@ class ConfigManager:
             config.cluster_model = cluster_model
         if fallback_model is not None:
             config.fallback_model = fallback_model
+        if mermaid_validator is not None:
+            config.mermaid_validator = mermaid_validator
         if default_output is not None:
             config.default_output = default_output
         if max_tokens is not None:

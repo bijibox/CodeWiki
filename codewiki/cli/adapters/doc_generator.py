@@ -109,6 +109,7 @@ class CLIDocumentationGenerator:
             max_token_per_module = self.config.get("max_token_per_module", 36369)
             max_token_per_leaf_module = self.config.get("max_token_per_leaf_module", 16000)
             max_depth = self.config.get("max_depth", 2)
+            mermaid_validator = self.config.get("mermaid_validator", "mermaid_parser_py")
             agent_instructions = self.config.get("agent_instructions")
             prompt_name = self.config.get("prompt_name", "en")
 
@@ -128,6 +129,9 @@ class CLIDocumentationGenerator:
                     max_token_per_leaf_module
                     if isinstance(max_token_per_leaf_module, int)
                     else 16000
+                ),
+                mermaid_validator=(
+                    mermaid_validator if isinstance(mermaid_validator, str) else "mermaid_parser_py"
                 ),
                 max_depth=max_depth if isinstance(max_depth, int) else 2,
                 agent_instructions=(

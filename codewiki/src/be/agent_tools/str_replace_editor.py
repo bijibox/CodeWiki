@@ -848,7 +848,11 @@ async def str_replace_editor(
     result = "\n".join(tool.logs)
 
     if command != "view" and path.endswith(".md"):
-        mermaid_validation = await validate_mermaid_diagrams(absolute_path, path)
+        mermaid_validation = await validate_mermaid_diagrams(
+            absolute_path,
+            path,
+            mermaid_validator=ctx.deps.config.mermaid_validator,
+        )
         result = result + "\n---------- Mermaid validation ----------\n" + mermaid_validation
 
     return result

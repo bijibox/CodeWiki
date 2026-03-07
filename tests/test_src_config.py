@@ -71,6 +71,7 @@ def test_config_from_args_builds_default_output_paths():
     assert config.output_dir == "output"
     assert config.dependency_graph_dir == "output/dependency_graphs"
     assert config.docs_dir == "output/docs/my_repo_name-docs"
+    assert config.mermaid_validator == "mermaid_parser_py"
     assert config.prompt_name == "en"
     assert isinstance(config.prompts, PromptBuilder)
 
@@ -84,6 +85,7 @@ def test_config_from_cli_uses_temp_output_and_runtime_overrides():
         main_model="main-model",
         cluster_model="cluster-model",
         fallback_model="fallback-model",
+        mermaid_validator="mermaid_ink_api",
         max_tokens=2048,
         max_token_per_module=4096,
         max_token_per_leaf_module=1024,
@@ -98,6 +100,7 @@ def test_config_from_cli_uses_temp_output_and_runtime_overrides():
     assert config.max_tokens == 2048
     assert config.max_token_per_module == 4096
     assert config.max_token_per_leaf_module == 1024
+    assert config.mermaid_validator == "mermaid_ink_api"
     assert config.max_depth == 4
     assert config.doc_type == "developer"
     assert config.prompt_name == "en"

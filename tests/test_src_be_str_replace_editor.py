@@ -45,7 +45,12 @@ async def test_str_replace_editor_defaults_working_dir_to_docs(
     )
     ctx = cast(RunContext[CodeWikiDeps], SimpleNamespace(deps=deps))
 
-    async def _fake_validate_mermaid_diagrams(absolute_path: str, path: str) -> str:
+    async def _fake_validate_mermaid_diagrams(
+        absolute_path: str,
+        path: str,
+        mermaid_validator: str,
+    ) -> str:
+        assert mermaid_validator == config.mermaid_validator
         return "ok"
 
     monkeypatch.setattr(

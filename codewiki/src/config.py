@@ -24,6 +24,8 @@ MAX_DEPTH = 2
 DEFAULT_MAX_TOKENS = 32_768
 DEFAULT_MAX_TOKEN_PER_MODULE = 36_369
 DEFAULT_MAX_TOKEN_PER_LEAF_MODULE = 16_000
+DEFAULT_MERMAID_VALIDATOR = "mermaid_parser_py"
+MERMAID_VALIDATORS = ("mermaid_parser_py", "mermaid_ink_api")
 # Legacy constants (for backward compatibility)
 MAX_TOKEN_PER_MODULE = DEFAULT_MAX_TOKEN_PER_MODULE
 MAX_TOKEN_PER_LEAF_MODULE = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
@@ -72,6 +74,7 @@ class Config:
     max_tokens: int = DEFAULT_MAX_TOKENS
     max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE
     max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
+    mermaid_validator: str = DEFAULT_MERMAID_VALIDATOR
     # Agent instructions for customization
     agent_instructions: Optional[Dict[str, Any]] = None
     prompt_name: str = DEFAULT_PROMPT_NAME
@@ -81,6 +84,11 @@ class Config:
 
     def __post_init__(self) -> None:
         """Load prompt templates for the configured prompt set."""
+        if self.mermaid_validator not in MERMAID_VALIDATORS:
+            allowed = ", ".join(MERMAID_VALIDATORS)
+            raise ValueError(
+                f"Unsupported mermaid validator '{self.mermaid_validator}'. Allowed values: {allowed}"
+            )
         self.prompts = PromptBuilder(FilePromptTemplateSet.from_name(self.prompt_name))
 
     @property
@@ -165,6 +173,7 @@ class Config:
             main_model=MAIN_MODEL,
             cluster_model=CLUSTER_MODEL,
             fallback_model=FALLBACK_MODEL_1,
+            mermaid_validator=DEFAULT_MERMAID_VALIDATOR,
             prompt_name=prompt_name,
             verbosity=0,
         )
@@ -182,6 +191,7 @@ class Config:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_token_per_module: int = DEFAULT_MAX_TOKEN_PER_MODULE,
         max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
+        mermaid_validator: str = DEFAULT_MERMAID_VALIDATOR,
         max_depth: int = MAX_DEPTH,
         agent_instructions: Optional[Dict[str, Any]] = None,
         prompt_name: str = DEFAULT_PROMPT_NAME,
@@ -202,6 +212,7 @@ class Config:
             max_tokens: Maximum tokens for LLM response
             max_token_per_module: Maximum tokens per module for clustering
             max_token_per_leaf_module: Maximum tokens per leaf module
+            mermaid_validator: Mermaid validation backend (`mermaid_parser_py` or `mermaid_ink_api`)
             max_depth: Maximum depth for hierarchical decomposition
             agent_instructions: Custom agent instructions dict
             prompt_name: Prompt template set name
@@ -228,6 +239,7 @@ class Config:
             max_tokens=max_tokens,
             max_token_per_module=max_token_per_module,
             max_token_per_leaf_module=max_token_per_leaf_module,
+            mermaid_validator=mermaid_validator,
             agent_instructions=agent_instructions,
             prompt_name=prompt_name,
             verbosity=verbosity,

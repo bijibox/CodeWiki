@@ -22,6 +22,7 @@ class _FakeConfigManager:
             main_model="main-model",
             cluster_model="cluster-model",
             fallback_model="fallback-model",
+            mermaid_validator="mermaid_ink_api",
             agent_instructions=AgentInstructions(),
         )
 
@@ -73,6 +74,7 @@ def test_generate_command_accepts_prompt_name(monkeypatch: MonkeyPatch, tmp_path
 
     assert result.exit_code == 0, result.output
     assert captured["config"]["prompt_name"] == "en"
+    assert captured["config"]["mermaid_validator"] == "mermaid_ink_api"
     assert Path(captured["output_dir"]) == output_dir.resolve()
     assert captured["verbosity"] == 0
 
