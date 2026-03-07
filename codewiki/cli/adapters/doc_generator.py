@@ -155,7 +155,7 @@ class CLIDocumentationGenerator:
             self._finalize_job()
             
             # Complete job
-            generation_time = time.time() - start_time
+            time.time() - start_time
             self.job.complete()
             
             return self.job

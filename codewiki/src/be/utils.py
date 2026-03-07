@@ -138,7 +138,6 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
     """
     import sys
     import os
-    from io import StringIO
 
     core_error = ""
     
@@ -152,7 +151,7 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
             sys.stderr = open(os.devnull, 'w')
             
             try:
-                json_output = await parse_mermaid_py(diagram_content)
+                await parse_mermaid_py(diagram_content)
             finally:
                 # Restore stderr
                 sys.stderr.close()
@@ -173,7 +172,7 @@ async def validate_single_diagram(diagram_content: str, diagram_num: int, line_s
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 raise Exception(error_str)
 
-    except Exception as e:
+    except Exception:
         logger.warning("Using mermaid-py to validate mermaid diagrams")
         try:
             import mermaid as md

@@ -32,7 +32,7 @@ class DependencyGraphBuilder:
             self.config.dependency_graph_dir, 
             f"{sanitized_repo_name}_dependency_graph.json"
         )
-        filtered_folders_path = os.path.join(
+        os.path.join(
             self.config.dependency_graph_dir, 
             f"{sanitized_repo_name}_filtered_folders.json"
         )

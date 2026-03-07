@@ -2,8 +2,6 @@ import ast
 import logging
 import warnings
 from typing import List, Tuple, Optional
-from pathlib import Path
-import sys
 import os
 
 
@@ -49,7 +47,7 @@ class PythonASTAnalyzer(ast.NodeVisitor):
                     path = path[:-len(ext)]
                     break
             return path.replace('/', '.').replace('\\', '.')
-        except:
+        except (TypeError, ValueError):
             return str(self.file_path).replace('/', '.').replace('\\', '.')
     
     def _get_component_id(self, name: str) -> str:
@@ -263,4 +261,3 @@ def analyze_python_file(
     analyzer = PythonASTAnalyzer(file_path, content, repo_path)
     analyzer.analyze()
     return analyzer.nodes, analyzer.call_relationships
-

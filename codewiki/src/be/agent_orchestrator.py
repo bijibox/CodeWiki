@@ -130,7 +130,7 @@ class AgentOrchestrator:
         
         # Run agent
         try:
-            result = await agent.run(
+            await agent.run(
                 format_user_prompt(
                     module_name=module_name,
                     core_component_ids=core_component_ids,

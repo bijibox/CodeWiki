@@ -6,13 +6,11 @@ user settings stored in ~/.codewiki/config.json. These settings are converted
 to the backend Config class when running documentation generation.
 """
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 from typing import Optional, List
-from pathlib import Path
 
 from codewiki.cli.utils.validation import (
     validate_url,
-    validate_api_key,
     validate_model_name,
 )
 

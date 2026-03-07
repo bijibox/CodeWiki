@@ -4,7 +4,6 @@ Main CLI application for CodeWiki using Click framework.
 
 import sys
 import click
-from pathlib import Path
 
 from codewiki import __version__
 

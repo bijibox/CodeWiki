@@ -69,7 +69,7 @@ async def generate_sub_module_documentation(
         # log the current module tree
         # print(f"Current module tree: {json.dumps(deps.module_tree, indent=4)}")
 
-        result = await sub_agent.run(
+        await sub_agent.run(
             format_user_prompt(
                 module_name=deps.current_module_name,
                 core_component_ids=core_component_ids,

@@ -2,7 +2,6 @@
 Logging utilities for CLI with colored output and progress tracking.
 """
 
-import sys
 from datetime import datetime
 from typing import Optional
 import click

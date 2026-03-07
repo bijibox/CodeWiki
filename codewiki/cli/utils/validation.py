@@ -2,9 +2,8 @@
 Validation utilities for CLI inputs and configuration.
 """
 
-import re
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import List, Tuple
 from urllib.parse import urlparse
 
 from codewiki.cli.utils.errors import ConfigurationError, RepositoryError
