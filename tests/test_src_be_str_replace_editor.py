@@ -4,9 +4,13 @@ from typing import cast
 
 import pytest
 from pydantic_ai import RunContext
+from pydantic_core import ValidationError
 
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
-from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor
+from codewiki.src.be.agent_tools.str_replace_editor import (
+    str_replace_editor,
+    str_replace_editor_tool,
+)
 from codewiki.src.config import Config
 
 
@@ -66,3 +70,28 @@ async def test_str_replace_editor_defaults_working_dir_to_docs(
     )
 
     assert (docs_dir / "module.md").read_text(encoding="utf-8") == "# Module\n"
+
+
+def test_str_replace_editor_schema_accepts_array_view_range() -> None:
+    validated = str_replace_editor_tool.function_schema.validator.validate_json(
+        '{"command":"view","path":"module.md","view_range":[1,50]}'
+    )
+
+    assert validated["view_range"] == [1, 50]
+
+
+def test_str_replace_editor_schema_accepts_json_string_view_range() -> None:
+    validated = str_replace_editor_tool.function_schema.validator.validate_json(
+        '{"command":"view","path":"module.md","view_range":"[1, 50]"}'
+    )
+
+    assert validated["view_range"] == [1, 50]
+
+
+def test_str_replace_editor_schema_rejects_invalid_json_string_view_range() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        str_replace_editor_tool.function_schema.validator.validate_json(
+            '{"command":"view","path":"module.md","view_range":"oops"}'
+        )
+
+    assert "view_range must be a JSON array string like [1, 50]" in str(exc_info.value)

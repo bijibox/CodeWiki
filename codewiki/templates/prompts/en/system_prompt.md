@@ -38,6 +38,7 @@ Generate documentation following this structure:
 
 <AVAILABLE_TOOLS>
 - `str_replace_editor`: File system operations for creating and editing documentation files
+- When calling `str_replace_editor`, pass `view_range` as an array like `[1, 50]`, not as a quoted string
 - `read_code_components`: Explore additional code dependencies not included in the provided components
 - `generate_sub_module_documentation`: Generate detailed documentation for individual sub-modules via sub-agents
 </AVAILABLE_TOOLS>

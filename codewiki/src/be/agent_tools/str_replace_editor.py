@@ -10,7 +10,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Tuple, cast
+from typing import Annotated, Any, List, Literal, Optional, Tuple, cast
 
 import logging
 
@@ -18,6 +18,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from pydantic import BeforeValidator
 from pydantic_ai import RunContext, Tool
 
 from .deps import CodeWikiDeps
@@ -72,6 +73,19 @@ def maybe_truncate(content: str, truncate_after: Optional[int] = MAX_RESPONSE_LE
         if not truncate_after or len(content) <= truncate_after
         else content[:truncate_after] + TRUNCATED_MESSAGE
     )
+
+
+def _parse_view_range(value: Any) -> Any:
+    """Accept JSON array strings from models that serialize arrays as strings."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("view_range must be a JSON array string like [1, 50]") from exc
+    return value
+
+
+ViewRangeParam = Optional[Annotated[List[int], BeforeValidator(_parse_view_range)]]
 
 
 class Flake8Error:
@@ -792,7 +806,7 @@ async def str_replace_editor(
     path: Optional[str] = None,
     file: Optional[str] = None,
     file_text: Optional[str] = None,
-    view_range: Optional[List[int]] = None,
+    view_range: ViewRangeParam = None,
     old_str: Optional[str] = None,
     new_str: Optional[str] = None,
     insert_line: Optional[int] = None,
@@ -812,7 +826,7 @@ async def str_replace_editor(
         path: Path to file or directory, e.g. `./chat_core.md` or `./agents/`
         file: Alias for `path` parameter (for compatibility with some models)
         file_text: Required parameter of `create` command, with the content of the file to be created.
-        view_range: Optional parameter of `view` command when `path` points to a file. If none is given, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file.
+        view_range: Optional parameter of `view` command when `path` points to a file. Pass it as an array like `[11, 12]`; JSON strings like `"[11, 12]"` are accepted for compatibility with some models. If none is given, the full file is shown. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file.
         old_str: Required parameter of `str_replace` command containing the string in `path` to replace.
         new_str: Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.
     """
@@ -866,6 +880,7 @@ Custom editing tool for viewing, creating and editing files
     * State is persistent across command calls and discussions with the user
     * `working_dir` defaults to `docs` when omitted
     * If `path` is a file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep.
+    * For `view`, pass `view_range` as an array like `[1, 50]`; JSON strings are accepted only for model compatibility
     * The `create` command cannot be used if the specified `path` already exists as a file
     * If a `command` generates a long output, it will be truncated and marked with `<response clipped>`
     * The `undo_edit` command will revert the last edit made to the file at `path`
