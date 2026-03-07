@@ -244,6 +244,7 @@ def available_prompt_names() -> list[str]:
         return []
     return sorted(entry.name for entry in prompts_dir.iterdir() if entry.is_dir())
 
+
 EXTENSION_TO_LANGUAGE = {
     ".py": "python",
     ".md": "markdown",

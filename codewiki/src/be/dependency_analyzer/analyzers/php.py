@@ -73,7 +73,7 @@ MAX_RECURSION_DEPTH = 100
 class NamespaceResolver:
     """Resolves PHP class names to fully qualified names using use statements."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.current_namespace: str = ""
         self.use_map: Dict[str, str] = {}  # alias -> fully_qualified_name
 

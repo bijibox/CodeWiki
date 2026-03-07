@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class CallGraphAnalyzer:
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the call graph analyzer."""
         self.functions: Dict[str, Node] = {}
         self.call_relationships: List[CallRelationship] = []
