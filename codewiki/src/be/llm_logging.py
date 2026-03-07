@@ -7,7 +7,7 @@ import json
 import logging
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from codewiki.src.config import Config
 from codewiki.src.utils import file_manager
@@ -71,7 +71,7 @@ def format_payload(payload: bytes | str | Any) -> tuple[str, str]:
     elif isinstance(payload, str):
         decoded = payload
     else:
-        decoded = json.dumps(payload)
+        decoded = json.dumps(_normalize_payload(payload), ensure_ascii=False, default=str)
 
     try:
         parsed = json.loads(decoded)
@@ -92,6 +92,7 @@ def write_llm_markdown_artifact(
     request_tokens: int | None = None,
     response_tokens: int | None = None,
     response_tokens_per_second: float | None = None,
+    extra_metadata: Mapping[str, Any] | None = None,
 ) -> Path:
     """Persist a markdown artifact for a single LLM interaction."""
     normalized_prompt_type = _sanitize_prompt_type(prompt_type)
@@ -117,6 +118,9 @@ def write_llm_markdown_artifact(
         metadata_lines.append(f"- Response tokens: `{response_tokens}`")
     if response_tokens_per_second is not None:
         metadata_lines.append(f"- Response speed: `{response_tokens_per_second:.3f} tokens/s`")
+    if extra_metadata:
+        for key, value in extra_metadata.items():
+            metadata_lines.append(f"- {key}: {_format_metadata_value(value)}")
 
     content_parts = ["# LLM Interaction", "", "## Metadata", *metadata_lines]
     for heading, body, language in sections:
@@ -132,6 +136,39 @@ def write_llm_markdown_artifact(
 
     target_path.write_text("\n".join(content_parts) + "\n", encoding="utf-8")
     return target_path
+
+
+def _normalize_payload(payload: Any) -> Any:
+    """Best-effort conversion of SDK objects to JSON-serializable structures."""
+    if hasattr(payload, "to_dict") and callable(payload.to_dict):
+        return _normalize_payload(payload.to_dict())
+    if hasattr(payload, "model_dump") and callable(payload.model_dump):
+        return _normalize_payload(payload.model_dump())
+    if isinstance(payload, Mapping):
+        return {str(key): _normalize_payload(value) for key, value in payload.items()}
+    if isinstance(payload, (list, tuple, set)):
+        return [_normalize_payload(item) for item in payload]
+    if hasattr(payload, "__dict__"):
+        return {
+            key: _normalize_payload(value)
+            for key, value in vars(payload).items()
+            if not key.startswith("_")
+        }
+    return payload
+
+
+def _format_metadata_value(value: Any) -> str:
+    """Render metadata values consistently in markdown artifacts."""
+    if value is None:
+        return "`null`"
+    if isinstance(value, bool):
+        return f"`{str(value).lower()}`"
+    if isinstance(value, (int, float)):
+        return f"`{value}`"
+    if isinstance(value, str):
+        return f"`{value}`"
+    normalized = _normalize_payload(value)
+    return f"`{json.dumps(normalized, ensure_ascii=False, default=str)}`"
 
 
 def _sanitize_prompt_type(prompt_type: str | None) -> str:

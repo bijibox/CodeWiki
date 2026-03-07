@@ -84,7 +84,13 @@ def test_call_llm_verbosity_three_shows_summary_only_and_writes_artifact(
     class FakeCompletions:
         def create(self, **kwargs):
             return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content="response text"))]
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="response text", reasoning=None),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5),
             )
 
     class FakeClient:
@@ -94,7 +100,11 @@ def test_call_llm_verbosity_three_shows_summary_only_and_writes_artifact(
     monkeypatch.setattr("codewiki.src.be.llm_services.create_openai_client", lambda _: FakeClient())
     monkeypatch.setattr(
         "codewiki.src.be.llm_services.count_tokens",
-        lambda text: {"Explain this repository": 3, "response text": 2}[text],
+        lambda text: {
+            "Explain this repository": 3,
+            "response text": 2,
+            "Reasoning trace": 4,
+        }[text],
     )
     monkeypatch.setattr(
         "codewiki.src.be.llm_services.time.perf_counter", lambda: next(perf_counter_values)
@@ -122,6 +132,8 @@ def test_call_llm_verbosity_three_shows_summary_only_and_writes_artifact(
     assert "- Request tokens: `3`" in artifact_content
     assert "- Response tokens: `2`" in artifact_content
     assert "- Response speed: `8.000 tokens/s`" in artifact_content
+    assert "- Finish reason: `stop`" in artifact_content
+    assert "- Content missing: `false`" in artifact_content
     assert "## Request" in artifact_content
     assert "## Response" in artifact_content
     assert "Explain this repository" in artifact_content
@@ -139,7 +151,13 @@ def test_call_llm_verbosity_four_shows_full_prompt_and_response(
     class FakeCompletions:
         def create(self, **kwargs):
             return SimpleNamespace(
-                choices=[SimpleNamespace(message=SimpleNamespace(content="response text"))]
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content="response text", reasoning=None),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5),
             )
 
     class FakeClient:
@@ -149,7 +167,11 @@ def test_call_llm_verbosity_four_shows_full_prompt_and_response(
     monkeypatch.setattr("codewiki.src.be.llm_services.create_openai_client", lambda _: FakeClient())
     monkeypatch.setattr(
         "codewiki.src.be.llm_services.count_tokens",
-        lambda text: {"Explain this repository": 3, "response text": 2}[text],
+        lambda text: {
+            "Explain this repository": 3,
+            "response text": 2,
+            "Reasoning trace": 4,
+        }[text],
     )
     monkeypatch.setattr(
         "codewiki.src.be.llm_services.time.perf_counter", lambda: next(perf_counter_values)
@@ -173,6 +195,166 @@ def test_call_llm_verbosity_four_shows_full_prompt_and_response(
     assert "model: cluster-model" in output
     assert "Explain this repository" in output
     assert "response text" in output
+
+
+def test_call_llm_writes_reasoning_section_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    config = _make_backend_config(tmp_path, verbosity=3)
+    perf_counter_values = iter([21.0, 21.5])
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content="response text",
+                            reasoning="Reasoning trace",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=3, completion_tokens=2, total_tokens=5),
+            )
+
+    class FakeClient:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("codewiki.src.be.llm_services.create_openai_client", lambda _: FakeClient())
+    monkeypatch.setattr(
+        "codewiki.src.be.llm_services.count_tokens",
+        lambda text: {
+            "Explain this repository": 3,
+            "response text": 2,
+            "Reasoning trace": 4,
+        }[text],
+    )
+    monkeypatch.setattr(
+        "codewiki.src.be.llm_services.time.perf_counter", lambda: next(perf_counter_values)
+    )
+
+    result = call_llm(
+        "Explain this repository",
+        config,
+        model="cluster-model",
+        prompt_type="cluster_modules",
+        context="root",
+    )
+
+    artifacts = sorted((Path(config.docs_dir) / "temp" / "llm").glob("*.md"))
+    assert result == "response text"
+    assert len(artifacts) == 1
+    artifact_content = artifacts[0].read_text(encoding="utf-8")
+    assert "## Response" in artifact_content
+    assert "## Reasoning" in artifact_content
+    assert "Reasoning trace" in artifact_content
+    assert '"reasoning_tokens_estimated": 4' in artifact_content
+
+
+def test_call_llm_writes_failure_artifact_with_reasoning_and_raw_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    config = _make_backend_config(tmp_path, verbosity=3)
+    perf_counter_values = iter([22.0, 22.125])
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content=None,
+                            reasoning="Reasoning trace",
+                        ),
+                        finish_reason="length",
+                    )
+                ],
+                usage=SimpleNamespace(prompt_tokens=3, completion_tokens=32, total_tokens=35),
+            )
+
+    class FakeClient:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("codewiki.src.be.llm_services.create_openai_client", lambda _: FakeClient())
+    monkeypatch.setattr(
+        "codewiki.src.be.llm_services.count_tokens",
+        lambda text: {"Explain this repository": 3, "Reasoning trace": 4}[text],
+    )
+    monkeypatch.setattr(
+        "codewiki.src.be.llm_services.time.perf_counter", lambda: next(perf_counter_values)
+    )
+
+    with pytest.raises(RuntimeError, match="LLM response did not include message content"):
+        call_llm(
+            "Explain this repository",
+            config,
+            model="cluster-model",
+            prompt_type="cluster_modules",
+            context="root",
+        )
+
+    artifacts = sorted((Path(config.docs_dir) / "temp" / "llm").glob("*.md"))
+    assert len(artifacts) == 1
+    artifact_content = artifacts[0].read_text(encoding="utf-8")
+    assert "- Finish reason: `length`" in artifact_content
+    assert "- Content missing: `true`" in artifact_content
+    assert "## Reasoning" in artifact_content
+    assert "Reasoning trace" in artifact_content
+    assert "## Raw Response" in artifact_content
+    assert '"content": null' in artifact_content
+    assert '"reasoning_tokens_estimated": 4' in artifact_content
+    assert "## Error" in artifact_content
+    assert "LLM response did not include message content" in artifact_content
+
+
+def test_call_llm_writes_failure_artifact_without_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    config = _make_backend_config(tmp_path, verbosity=3)
+    perf_counter_values = iter([23.0, 23.125])
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(content=None),
+                        finish_reason="length",
+                    )
+                ]
+            )
+
+    class FakeClient:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setattr("codewiki.src.be.llm_services.create_openai_client", lambda _: FakeClient())
+    monkeypatch.setattr("codewiki.src.be.llm_services.count_tokens", lambda text: 3)
+    monkeypatch.setattr(
+        "codewiki.src.be.llm_services.time.perf_counter", lambda: next(perf_counter_values)
+    )
+
+    with pytest.raises(RuntimeError, match="LLM response did not include message content"):
+        call_llm(
+            "Explain this repository",
+            config,
+            model="cluster-model",
+            prompt_type="cluster_modules",
+            context="root",
+        )
+
+    artifacts = sorted((Path(config.docs_dir) / "temp" / "llm").glob("*.md"))
+    assert len(artifacts) == 1
+    artifact_content = artifacts[0].read_text(encoding="utf-8")
+    assert "## Reasoning" not in artifact_content
+    assert "## Raw Response" in artifact_content
+    assert "## Error" in artifact_content
 
 
 @pytest.mark.asyncio
