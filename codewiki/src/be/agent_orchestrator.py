@@ -44,11 +44,6 @@ from codewiki.src.be.agent_tools.generate_sub_module_documentations import (
     generate_sub_module_documentation_tool,
 )
 from codewiki.src.be.llm_services import create_fallback_models
-from codewiki.src.be.prompt_template import (
-    format_user_prompt,
-    format_system_prompt,
-    format_leaf_system_prompt,
-)
 from codewiki.src.be.utils import is_complex_module
 from codewiki.src.config import (
     Config,
@@ -82,7 +77,9 @@ class AgentOrchestrator:
                     str_replace_editor_tool,
                     generate_sub_module_documentation_tool,
                 ],
-                system_prompt=format_system_prompt(module_name, self.custom_instructions),
+                system_prompt=self.config.prompts.build_system_prompt(
+                    module_name, self.custom_instructions
+                ),
             )
         else:
             return Agent[CodeWikiDeps, str](
@@ -90,7 +87,9 @@ class AgentOrchestrator:
                 name=module_name,
                 deps_type=CodeWikiDeps,
                 tools=[read_code_components_tool, str_replace_editor_tool],
-                system_prompt=format_leaf_system_prompt(module_name, self.custom_instructions),
+                system_prompt=self.config.prompts.build_leaf_system_prompt(
+                    module_name, self.custom_instructions
+                ),
             )
 
     async def process_module(
@@ -141,7 +140,7 @@ class AgentOrchestrator:
         # Run agent
         try:
             await agent.run(
-                format_user_prompt(
+                self.config.prompts.build_user_prompt(
                     module_name=module_name,
                     core_component_ids=core_component_ids,
                     components=components,

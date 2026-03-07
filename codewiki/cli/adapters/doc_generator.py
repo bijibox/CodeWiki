@@ -140,6 +140,7 @@ class CLIDocumentationGenerator:
             max_token_per_leaf_module = self.config.get("max_token_per_leaf_module", 16000)
             max_depth = self.config.get("max_depth", 2)
             agent_instructions = self.config.get("agent_instructions")
+            prompt_name = self.config.get("prompt_name", "en")
 
             backend_config = BackendConfig.from_cli(
                 repo_path=str(self.repo_path),
@@ -162,6 +163,7 @@ class CLIDocumentationGenerator:
                 agent_instructions=(
                     agent_instructions if isinstance(agent_instructions, dict) else None
                 ),
+                prompt_name=prompt_name if isinstance(prompt_name, str) else "en",
             )
 
             # Run backend documentation generation

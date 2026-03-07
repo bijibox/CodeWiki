@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Local imports
 from codewiki.src.be.documentation_generator import DocumentationGenerator
+from codewiki.src.be.prompt_template import DEFAULT_PROMPT_NAME, available_prompt_names
 from codewiki.src.config import (
     Config,
 )
@@ -34,6 +35,13 @@ def parse_arguments() -> argparse.Namespace:
         description="Generate comprehensive documentation for Python components in dependency order."
     )
     parser.add_argument("--repo-path", type=str, required=True, help="Path to the repository")
+    parser.add_argument(
+        "--prompt-name",
+        type=str,
+        default=DEFAULT_PROMPT_NAME,
+        choices=available_prompt_names(),
+        help="Prompt template set to use",
+    )
 
     return parser.parse_args()
 

@@ -1,8 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 import argparse
 import os
 from dotenv import load_dotenv
+
+from codewiki.src.be.prompt_template import (
+    DEFAULT_PROMPT_NAME,
+    FilePromptTemplateSet,
+    PromptBuilder,
+)
 
 load_dotenv()
 
@@ -68,6 +74,12 @@ class Config:
     max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
     # Agent instructions for customization
     agent_instructions: Optional[Dict[str, Any]] = None
+    prompt_name: str = DEFAULT_PROMPT_NAME
+    prompts: PromptBuilder = field(init=False)
+
+    def __post_init__(self) -> None:
+        """Load prompt templates for the configured prompt set."""
+        self.prompts = PromptBuilder(FilePromptTemplateSet.from_name(self.prompt_name))
 
     @property
     def include_patterns(self) -> Optional[List[str]]:
@@ -138,6 +150,7 @@ class Config:
         """Create configuration from parsed arguments."""
         repo_name = os.path.basename(os.path.normpath(args.repo_path))
         sanitized_repo_name = "".join(c if c.isalnum() else "_" for c in repo_name)
+        prompt_name = getattr(args, "prompt_name", DEFAULT_PROMPT_NAME)
 
         return cls(
             repo_path=args.repo_path,
@@ -150,6 +163,7 @@ class Config:
             main_model=MAIN_MODEL,
             cluster_model=CLUSTER_MODEL,
             fallback_model=FALLBACK_MODEL_1,
+            prompt_name=prompt_name,
         )
 
     @classmethod
@@ -167,6 +181,7 @@ class Config:
         max_token_per_leaf_module: int = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE,
         max_depth: int = MAX_DEPTH,
         agent_instructions: Optional[Dict[str, Any]] = None,
+        prompt_name: str = DEFAULT_PROMPT_NAME,
     ) -> "Config":
         """
         Create configuration for CLI context.
@@ -184,6 +199,7 @@ class Config:
             max_token_per_leaf_module: Maximum tokens per leaf module
             max_depth: Maximum depth for hierarchical decomposition
             agent_instructions: Custom agent instructions dict
+            prompt_name: Prompt template set name
 
         Returns:
             Config instance
@@ -206,4 +222,5 @@ class Config:
             max_token_per_module=max_token_per_module,
             max_token_per_leaf_module=max_token_per_leaf_module,
             agent_instructions=agent_instructions,
+            prompt_name=prompt_name,
         )

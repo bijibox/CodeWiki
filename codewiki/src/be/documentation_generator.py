@@ -11,10 +11,6 @@ logger = logging.getLogger(__name__)
 # Local imports
 from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
 from codewiki.src.be.llm_services import call_llm
-from codewiki.src.be.prompt_template import (
-    REPO_OVERVIEW_PROMPT,
-    MODULE_OVERVIEW_PROMPT,
-)
 from codewiki.src.be.cluster_modules import cluster_modules
 from codewiki.src.config import (
     Config,
@@ -243,14 +239,15 @@ class DocumentationGenerator:
 
         # Create repo structure with 1-depth children docs and target indicator
         repo_structure = self.build_overview_structure(module_tree, module_path, working_dir)
+        repo_structure_json = json.dumps(repo_structure, indent=4)
 
         prompt = (
-            MODULE_OVERVIEW_PROMPT.format(
-                module_name=module_name, repo_structure=json.dumps(repo_structure, indent=4)
+            self.config.prompts.build_module_overview_prompt(
+                module_name=module_name, repo_structure=repo_structure_json
             )
             if len(module_path) >= 1
-            else REPO_OVERVIEW_PROMPT.format(
-                repo_name=module_name, repo_structure=json.dumps(repo_structure, indent=4)
+            else self.config.prompts.build_repo_overview_prompt(
+                repo_name=module_name, repo_structure=repo_structure_json
             )
         )
 
