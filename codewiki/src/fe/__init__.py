@@ -5,12 +5,7 @@ CodeWiki Frontend Module
 Web interface components for the documentation generation service.
 """
 
-from .web_app import app, main
 from .models import JobStatus, JobStatusResponse, RepositorySubmission, CacheEntry
-from .cache_manager import CacheManager
-from .background_worker import BackgroundWorker
-from .github_processor import GitHubRepoProcessor
-from .routes import WebRoutes
 
 __all__ = [
     'app',
@@ -24,3 +19,27 @@ __all__ = [
     'GitHubRepoProcessor',
     'WebRoutes'
 ]
+
+
+def __getattr__(name: str):
+    if name in {"app", "main"}:
+        from .web_app import app, main
+
+        return {"app": app, "main": main}[name]
+    if name == "CacheManager":
+        from .cache_manager import CacheManager
+
+        return CacheManager
+    if name == "BackgroundWorker":
+        from .background_worker import BackgroundWorker
+
+        return BackgroundWorker
+    if name == "GitHubRepoProcessor":
+        from .github_processor import GitHubRepoProcessor
+
+        return GitHubRepoProcessor
+    if name == "WebRoutes":
+        from .routes import WebRoutes
+
+        return WebRoutes
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

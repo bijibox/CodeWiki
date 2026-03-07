@@ -102,18 +102,16 @@ def resolve_cycles(graph: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     # Process each cycle
     for i, cycle in enumerate(cycles):
         logger.debug(f"Cycle {i+1}: {' -> '.join(cycle)}")
-        
-        # Strategy: Break the cycle by removing the "weakest" dependency
-        # Here, we just arbitrarily remove the last edge to make the graph acyclic
-        # In a real-world scenario, you might use heuristics to determine which edge to break
-        # For example, removing edges between different modules before edges within the same module
-        for j in range(len(cycle) - 1):
-            current = cycle[j]
-            next_node = cycle[j + 1]
-            
-            if next_node in new_graph[current]:
-                logger.debug(f"Breaking cycle by removing dependency: {current} -> {next_node}")
-                new_graph[current].remove(next_node)
+        cycle_set = set(cycle)
+
+        # Tarjan returns SCC members, not necessarily in edge order.
+        # Remove the first dependency edge that stays within the SCC.
+        for current in cycle:
+            internal_deps = sorted(dep for dep in new_graph.get(current, set()) if dep in cycle_set)
+            if internal_deps:
+                dependency = internal_deps[0]
+                logger.debug(f"Breaking cycle by removing dependency: {current} -> {dependency}")
+                new_graph[current].remove(dependency)
                 break
     
     return new_graph
@@ -132,16 +130,14 @@ def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
     # First, check for and resolve cycles
     acyclic_graph = resolve_cycles(graph)
     
-    # Initialize in-degree counter for all nodes
-    in_degree = {node: 0 for node in acyclic_graph}
-    
-    # Count in-degrees
-    for node, dependencies in acyclic_graph.items():
-        for dep in dependencies:
-            if dep in in_degree:
-                in_degree[dep] += 1
-    
-    # Queue of nodes with no dependencies (in-degree of 0)
+    # For graphs shaped as "node -> dependencies", in-degree is the number of
+    # unresolved dependencies each node still has.
+    in_degree = {
+        node: sum(1 for dep in dependencies if dep in acyclic_graph)
+        for node, dependencies in acyclic_graph.items()
+    }
+
+    # Queue of nodes with no remaining dependencies.
     queue = deque([node for node, degree in in_degree.items() if degree == 0])
     
     # Result list to store the topological order
@@ -152,7 +148,7 @@ def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
         node = queue.popleft()
         result.append(node)
         
-        # Reduce in-degree for each node that depends on the current node
+        # Reduce in-degree for each node that depends on the current node.
         for dependent, deps in acyclic_graph.items():
             if node in deps:
                 in_degree[dependent] -= 1
@@ -165,8 +161,7 @@ def topological_sort(graph: Dict[str, Set[str]]) -> List[str]:
         # Return all nodes in some order to avoid breaking the process
         return list(acyclic_graph.keys())
     
-    # Reverse the result to get dependencies first
-    return result[::-1]
+    return result
 
 def dependency_first_dfs(graph: Dict[str, Set[str]]) -> List[str]:
     """
