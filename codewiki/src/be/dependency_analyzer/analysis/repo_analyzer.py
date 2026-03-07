@@ -8,7 +8,10 @@ detailed file tree representations with filtering capabilities.
 import fnmatch
 from pathlib import Path
 from typing import Dict, List, Optional
-from codewiki.src.be.dependency_analyzer.utils.patterns import DEFAULT_IGNORE_PATTERNS, DEFAULT_INCLUDE_PATTERNS
+from codewiki.src.be.dependency_analyzer.utils.patterns import (
+    DEFAULT_IGNORE_PATTERNS,
+    DEFAULT_INCLUDE_PATTERNS,
+)
 
 
 class RepoAnalyzer:
@@ -28,7 +31,7 @@ class RepoAnalyzer:
             else list(DEFAULT_IGNORE_PATTERNS)
         )
 
-    def analyze_repository_structure(self, repo_dir: str) -> Dict:
+    def analyze_repository_structure(self, repo_dir: str) -> Dict[str, object]:
         file_tree = self._build_file_tree(repo_dir)
         return {
             "file_tree": file_tree,
@@ -38,8 +41,8 @@ class RepoAnalyzer:
             },
         }
 
-    def _build_file_tree(self, repo_dir: str) -> Dict:
-        def build_tree(path: Path, base_path: Path) -> Optional[Dict]:
+    def _build_file_tree(self, repo_dir: str) -> Dict[str, object]:
+        def build_tree(path: Path, base_path: Path) -> Optional[Dict[str, object]]:
             relative_path = path.relative_to(base_path)
             relative_path_str = str(relative_path)
 
@@ -72,7 +75,7 @@ class RepoAnalyzer:
                 }
 
             elif path.is_dir():
-                children = []
+                children: list[Dict[str, object]] = []
                 try:
                     for child in sorted(path.iterdir()):
                         child_tree = build_tree(child, base_path)
@@ -93,7 +96,15 @@ class RepoAnalyzer:
             # Other types (sockets, devices, etc.)
             return None
 
-        return build_tree(Path(repo_dir), Path(repo_dir))
+        root_tree = build_tree(Path(repo_dir), Path(repo_dir))
+        if root_tree is None:
+            return {
+                "type": "directory",
+                "name": Path(repo_dir).name,
+                "path": ".",
+                "children": [],
+            }
+        return root_tree
 
     def _should_exclude_path(self, path: str, filename: str) -> bool:
         for pattern in self.exclude_patterns:
@@ -115,12 +126,21 @@ class RepoAnalyzer:
                 return True
         return False
 
-    def _count_files(self, tree: Dict) -> int:
+    def _count_files(self, tree: Dict[str, object]) -> int:
         if tree["type"] == "file":
             return 1
-        return sum(self._count_files(child) for child in tree.get("children", []))
+        children = tree.get("children", [])
+        if not isinstance(children, list):
+            return 0
+        return sum(self._count_files(child) for child in children if isinstance(child, dict))
 
-    def _calculate_size(self, tree: Dict) -> float:
+    def _calculate_size(self, tree: Dict[str, object]) -> float:
         if tree["type"] == "file":
-            return tree.get("_size_bytes", 0) / 1024
-        return sum(self._calculate_size(child) for child in tree.get("children", []))
+            size_bytes = tree.get("_size_bytes", 0)
+            if isinstance(size_bytes, (int, float)):
+                return float(size_bytes) / 1024
+            return 0.0
+        children = tree.get("children", [])
+        if not isinstance(children, list):
+            return 0.0
+        return sum(self._calculate_size(child) for child in children if isinstance(child, dict))

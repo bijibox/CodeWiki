@@ -8,16 +8,16 @@ Web interface components for the documentation generation service.
 from .models import JobStatus, JobStatusResponse, RepositorySubmission, CacheEntry
 
 __all__ = [
-    'app',
-    'main',
-    'JobStatus',
-    'JobStatusResponse', 
-    'RepositorySubmission',
-    'CacheEntry',
-    'CacheManager',
-    'BackgroundWorker',
-    'GitHubRepoProcessor',
-    'WebRoutes'
+    "app",
+    "main",
+    "JobStatus",
+    "JobStatusResponse",
+    "RepositorySubmission",
+    "CacheEntry",
+    "CacheManager",
+    "BackgroundWorker",
+    "GitHubRepoProcessor",
+    "WebRoutes",
 ]
 
 

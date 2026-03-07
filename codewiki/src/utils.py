@@ -1,45 +1,47 @@
-import os
 import json
-from typing import Any, Optional, Dict
-
+import os
+from os import PathLike
+from typing import Any, Dict, Optional, cast
 
 # ------------------------------------------------------------
 # ---------------------- File Manager ---------------------
 # ------------------------------------------------------------
 
+
 class FileManager:
     """Handles file I/O operations."""
-    
+
     @staticmethod
-    def ensure_directory(path: str) -> None:
+    def ensure_directory(path: str | PathLike[str]) -> None:
         """Create directory if it doesn't exist."""
         os.makedirs(path, exist_ok=True)
-    
+
     @staticmethod
-    def save_json(data: Any, filepath: str) -> None:
+    def save_json(data: Any, filepath: str | PathLike[str]) -> None:
         """Save data as JSON to file."""
-        with open(filepath, 'w') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
-    
+
     @staticmethod
-    def load_json(filepath: str) -> Optional[Dict[str, Any]]:
+    def load_json(filepath: str | PathLike[str]) -> Optional[Dict[str, Any]]:
         """Load JSON from file, return None if file doesn't exist."""
         if not os.path.exists(filepath):
             return None
-        
-        with open(filepath, 'r') as f:
-            return json.load(f)
-    
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            return cast(Optional[Dict[str, Any]], json.load(f))
+
     @staticmethod
-    def save_text(content: str, filepath: str) -> None:
+    def save_text(content: str, filepath: str | PathLike[str]) -> None:
         """Save text content to file."""
-        with open(filepath, 'w') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
-    
+
     @staticmethod
-    def load_text(filepath: str) -> str:
+    def load_text(filepath: str | PathLike[str]) -> str:
         """Load text content from file."""
-        with open(filepath, 'r') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
+
 
 file_manager = FileManager()
