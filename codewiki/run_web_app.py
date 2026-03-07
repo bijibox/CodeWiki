@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# mypy: disable-error-code=import-not-found
+# ruff: noqa: E402
 """
 Startup script for CodeWiki Web Application
 """

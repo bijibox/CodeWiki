@@ -5,7 +5,7 @@ GitHub repository processing utilities.
 
 import os
 import subprocess
-from typing import Dict
+from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from .config import WebAppConfig
@@ -52,7 +52,11 @@ class GitHubRepoProcessor:
         }
     
     @staticmethod
-    def clone_repository(clone_url: str, target_dir: str, commit_id: str = None) -> bool:
+    def clone_repository(
+        clone_url: str,
+        target_dir: str,
+        commit_id: Optional[str] = None,
+    ) -> bool:
         """Clone a GitHub repository to the target directory, optionally checking out a specific commit."""
         try:
             # Ensure target directory exists
