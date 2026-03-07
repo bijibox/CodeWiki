@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import time
 from typing import Any, Dict, List
 from copy import deepcopy
 import traceback
@@ -20,6 +21,7 @@ from codewiki.src.config import (
 )
 from codewiki.src.utils import file_manager
 from codewiki.src.be.agent_orchestrator import AgentOrchestrator
+from codewiki.cli.utils.logging import log_cache_event
 
 
 class DocumentationGenerator:
@@ -151,6 +153,7 @@ class DocumentationGenerator:
             for index, (module_path, module_name) in enumerate(processing_order, start=1):
                 module_key = "/".join(module_path)
                 module_info: Dict[str, Any] = {}
+                started_at: float | None = None
                 try:
                     # Get the module info from the tree
                     module_info = module_tree
@@ -168,12 +171,27 @@ class DocumentationGenerator:
                             "skipped",
                             index=index,
                             total=total_modules,
+                            phase="finished",
+                            depth=0,
+                            parent_path=module_path[:-1],
                         )
                         continue
 
+                    self._emit_module_progress(
+                        module_name,
+                        module_key,
+                        "leaf" if self.is_leaf_module(module_info) else "parent",
+                        "started",
+                        index=index,
+                        total=total_modules,
+                        phase="started",
+                        depth=0,
+                        parent_path=module_path[:-1],
+                    )
+                    started_at = time.perf_counter()
+
                     # Process the module
                     if self.is_leaf_module(module_info):
-                        logger.info(f"📄 Processing leaf module: {module_key}")
                         final_module_tree, status = await self.agent_orchestrator.process_module(
                             module_name,
                             components,
@@ -183,7 +201,6 @@ class DocumentationGenerator:
                         )
                         module_type = "leaf"
                     else:
-                        logger.info(f"📁 Processing parent module: {module_key}")
                         final_module_tree, status = await self.generate_parent_module_docs(
                             module_path, working_dir
                         )
@@ -197,6 +214,10 @@ class DocumentationGenerator:
                         status,
                         index=index,
                         total=total_modules,
+                        phase="finished",
+                        duration_seconds=time.perf_counter() - started_at,
+                        depth=0,
+                        parent_path=module_path[:-1],
                     )
 
                 except Exception as e:
@@ -207,6 +228,12 @@ class DocumentationGenerator:
                         "failed",
                         index=index,
                         total=total_modules,
+                        phase="finished",
+                        duration_seconds=(
+                            time.perf_counter() - started_at if started_at is not None else None
+                        ),
+                        depth=0,
+                        parent_path=module_path[:-1],
                         error=str(e),
                     )
                     logger.error(f"Failed to process module {module_key}: {str(e)}")
@@ -214,7 +241,18 @@ class DocumentationGenerator:
                     continue
 
             # Generate repo overview
-            logger.info(f"📚 Generating repository overview")
+            self._emit_module_progress(
+                "overview",
+                "overview",
+                "overview",
+                "started",
+                index=total_modules,
+                total=total_modules,
+                phase="started",
+                depth=0,
+                parent_path=[],
+            )
+            started_at = time.perf_counter()
             final_module_tree, overview_status = await self.generate_parent_module_docs(
                 [], working_dir
             )
@@ -225,10 +263,25 @@ class DocumentationGenerator:
                 overview_status,
                 index=total_modules,
                 total=total_modules,
+                phase="finished",
+                duration_seconds=time.perf_counter() - started_at,
+                depth=0,
+                parent_path=[],
             )
         else:
-            logger.info(f"Processing whole repo because repo can fit in the context window")
             repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
+            self._emit_module_progress(
+                repo_name,
+                repo_name,
+                "leaf",
+                "started",
+                index=1,
+                total=1,
+                phase="started",
+                depth=0,
+                parent_path=[],
+            )
+            started_at = time.perf_counter()
             final_module_tree, status = await self.agent_orchestrator.process_module(
                 repo_name, components, leaf_nodes, [], working_dir
             )
@@ -239,6 +292,10 @@ class DocumentationGenerator:
                 status,
                 index=1,
                 total=1,
+                phase="finished",
+                duration_seconds=time.perf_counter() - started_at,
+                depth=0,
+                parent_path=[],
             )
 
             # save final_module_tree to module_tree.json
@@ -263,8 +320,6 @@ class DocumentationGenerator:
             else os.path.basename(os.path.normpath(self.config.repo_path))
         )
 
-        logger.info(f"Generating parent documentation for: {module_name}")
-
         # Load module tree
         module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
         module_tree = file_manager.load_json(module_tree_path) or {}
@@ -272,7 +327,8 @@ class DocumentationGenerator:
         # check if overview docs already exists
         overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
         if os.path.exists(overview_docs_path):
-            logger.info(f"✓ Overview docs already exists at {overview_docs_path}")
+            if int(getattr(self.config, "verbosity", 0)) < 2:
+                log_cache_event(logger, subject="overview", target=overview_docs_path)
             return module_tree, "cached"
 
         # check if parent docs already exists
@@ -281,7 +337,8 @@ class DocumentationGenerator:
             f"{module_name if len(module_path) >= 1 else OVERVIEW_FILENAME.replace('.md', '')}.md",
         )
         if os.path.exists(parent_docs_path):
-            logger.info(f"✓ Parent docs already exists at {parent_docs_path}")
+            if int(getattr(self.config, "verbosity", 0)) < 2:
+                log_cache_event(logger, subject="parent_doc", target=parent_docs_path)
             return module_tree, "cached"
 
         # Create repo structure with 1-depth children docs and target indicator
@@ -310,8 +367,6 @@ class DocumentationGenerator:
             parent_content = parent_docs.split("<OVERVIEW>")[1].split("</OVERVIEW>")[0].strip()
             # parent_content = prompt
             file_manager.save_text(parent_content, parent_docs_path)
-
-            logger.debug(f"Successfully generated parent documentation for: {module_name}")
             return module_tree, "generated"
 
         except Exception as e:
@@ -328,6 +383,10 @@ class DocumentationGenerator:
         *,
         index: int,
         total: int,
+        phase: str,
+        duration_seconds: float | None = None,
+        depth: int = 0,
+        parent_path: List[str] | None = None,
         error: str | None = None,
     ) -> None:
         """Emit a module progress event when a callback is configured."""
@@ -342,6 +401,10 @@ class DocumentationGenerator:
                 "module_path": module_path,
                 "module_type": module_type,
                 "status": status,
+                "phase": phase,
+                "duration_seconds": duration_seconds,
+                "depth": depth,
+                "parent_path": parent_path or [],
                 "error": error,
             }
         )

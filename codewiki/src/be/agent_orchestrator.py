@@ -7,7 +7,7 @@ import time
 import traceback
 from typing import Any, Dict, List
 
-from codewiki.cli.utils.logging import configure_logging
+from codewiki.cli.utils.logging import configure_logging, log_cache_event, log_module_event
 
 # Configure logging and monitoring
 
@@ -136,7 +136,14 @@ class AgentOrchestrator:
         working_dir: str,
     ) -> tuple[Dict[str, Any], str]:
         """Process a single module and generate its documentation."""
-        logger.info(f"Processing module: {module_name}")
+        emit_direct_lifecycle = self.config.module_progress_callback is None
+        if emit_direct_lifecycle:
+            log_module_event(
+                logger,
+                module_kind="leaf",
+                module_path=module_name,
+                status="start",
+            )
 
         # Load or create module tree
         module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
@@ -163,13 +170,29 @@ class AgentOrchestrator:
         # check if overview docs already exists
         overview_docs_path = os.path.join(working_dir, OVERVIEW_FILENAME)
         if os.path.exists(overview_docs_path):
-            logger.info(f"✓ Overview docs already exists at {overview_docs_path}")
+            if emit_direct_lifecycle or int(getattr(self.config, "verbosity", 0)) < 2:
+                log_cache_event(logger, subject="overview", target=overview_docs_path)
+            if emit_direct_lifecycle:
+                log_module_event(
+                    logger,
+                    module_kind="leaf",
+                    module_path=module_name,
+                    status="cached",
+                )
             return module_tree, "cached"
 
         # check if module docs already exists
         docs_path = os.path.join(working_dir, f"{module_name}.md")
         if os.path.exists(docs_path):
-            logger.info(f"✓ Module docs already exists at {docs_path}")
+            if emit_direct_lifecycle or int(getattr(self.config, "verbosity", 0)) < 2:
+                log_cache_event(logger, subject="module_doc", target=docs_path)
+            if emit_direct_lifecycle:
+                log_module_event(
+                    logger,
+                    module_kind="leaf",
+                    module_path=module_name,
+                    status="cached",
+                )
             return module_tree, "cached"
 
         # Run agent
@@ -251,11 +274,25 @@ class AgentOrchestrator:
 
             # Save updated module tree
             file_manager.save_json(deps.module_tree, module_tree_path)
-            logger.debug(f"Successfully processed module: {module_name}")
+            if emit_direct_lifecycle:
+                log_module_event(
+                    logger,
+                    module_kind="leaf",
+                    module_path=module_name,
+                    status="done",
+                    duration_seconds=duration_seconds,
+                )
 
             return deps.module_tree, "generated"
 
         except Exception as e:
+            if emit_direct_lifecycle:
+                log_module_event(
+                    logger,
+                    module_kind="leaf",
+                    module_path=module_name,
+                    status="failed",
+                )
             logger.error(f"Error processing module {module_name}: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise

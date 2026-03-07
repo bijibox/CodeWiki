@@ -67,60 +67,71 @@ class CodeWikiFormatter(logging.Formatter):
             return f"✗ {message}"
         if event_type == "debug":
             return f"[{self._format_clock(record)}] {message}"
-        if event_type == "progress_stage":
-            if getattr(record, "verbosity_gate", 0) >= 1:
-                return (
-                    f"\n[{getattr(record, 'elapsed', self._format_clock(record))}] "
-                    f"Phase {getattr(record, 'step', '?')}/{getattr(record, 'total', '?')}: {message}"
-                )
-            return f"[{getattr(record, 'step', '?')}/{getattr(record, 'total', '?')}] {message}"
-        if event_type == "progress_update":
-            return f"[{getattr(record, 'elapsed', self._format_clock(record))}]   {message}"
-        if event_type == "progress_complete":
-            suffix = ""
-            if getattr(record, "stage_time", None) is not None:
-                suffix = f" ({getattr(record, 'stage_time'):.1f}s)"
+        if event_type in {"progress_stage", "stage_start"}:
             return (
-                f"[{getattr(record, 'elapsed', self._format_clock(record))}]   "
+                f"[{getattr(record, 'elapsed', self._format_clock(record))}] "
+                f"Stage {getattr(record, 'step', '?')}/{getattr(record, 'total', '?')}  {message}"
+            )
+        if event_type in {"progress_update", "stage_update"}:
+            return f"[{getattr(record, 'elapsed', self._format_clock(record))}]   {message}"
+        if event_type in {"progress_complete", "stage_complete"}:
+            duration_seconds = getattr(record, "stage_time", None)
+            suffix = ""
+            if duration_seconds is not None:
+                suffix = f"  DONE {duration_seconds:.1f}s"
+            return (
+                f"[{getattr(record, 'elapsed', self._format_clock(record))}] "
+                f"Stage {getattr(record, 'step', '?')}/{getattr(record, 'total', '?')}  "
                 f"{message}{suffix}"
             )
-        if event_type == "module_progress":
-            current = getattr(record, "current", "?")
-            total = getattr(record, "total", "?")
-            module_type = getattr(record, "module_type", "module")
+        if event_type in {"module_progress", "module_event"}:
+            prefix = self._format_counter(
+                getattr(record, "current", None),
+                getattr(record, "total", None),
+            )
+            depth = max(0, int(getattr(record, "depth", 0)))
+            indent = "  " * depth
+            module_kind = getattr(
+                record,
+                "module_kind",
+                getattr(record, "module_type", "module"),
+            )
             module_path = getattr(record, "module_path", message)
-            status = getattr(record, "status", "generated")
-            suffix = f"... {status}" if status else ""
-            return f"  [{current}/{total}] {module_type} {module_path}{suffix}"
-        if event_type == "llm_summary":
-            phase = getattr(record, "llm_phase", "request")
-            if phase == "request":
-                request_tokens = getattr(record, "llm_request_tokens", None)
-                request_tokens_display = "unknown"
-                if request_tokens is not None:
-                    request_tokens_display = str(request_tokens)
-                return (
-                    f"[{self._format_clock(record)}] "
-                    f"LLM request: type={getattr(record, 'llm_prompt_type', 'llm')} "
-                    f"input_tokens={request_tokens_display}"
-                )
+            status = str(getattr(record, "status", "info")).upper()
+            duration_seconds = getattr(record, "duration_seconds", None)
+            line = f"{prefix}{indent}{module_kind}  {module_path}  {status}"
+            if duration_seconds is not None:
+                line += f" {duration_seconds:.1f}s"
+            return line
+        if event_type == "cache":
+            subject = getattr(record, "cache_subject", "artifact")
+            target = getattr(record, "cache_target", message)
+            return f"[{self._format_clock(record)}] CACHE  {subject}  {target}"
+        if event_type == "failure":
+            return f"[{self._format_clock(record)}] FAIL  {message}"
+        if event_type == "llm_request":
+            request_tokens = getattr(record, "llm_request_tokens", None)
+            request_tokens_display = "unknown" if request_tokens is None else str(request_tokens)
+            return (
+                f"[{self._format_clock(record)}] "
+                f"LLM REQ  {getattr(record, 'llm_prompt_type', 'llm')}  in={request_tokens_display}"
+            )
+        if event_type == "llm_response":
             duration_seconds = getattr(record, "llm_duration_seconds", None)
             response_tokens = getattr(record, "llm_response_tokens", None)
             response_tokens_per_second = getattr(record, "llm_response_tokens_per_second", None)
-            duration_display = "unknown"
-            response_tokens_display = "unknown"
-            response_speed_display = "unknown"
-            if duration_seconds is not None:
-                duration_display = f"{duration_seconds:.3f}"
-            if response_tokens is not None:
-                response_tokens_display = str(response_tokens)
-            if response_tokens_per_second is not None:
-                response_speed_display = f"{response_tokens_per_second:.3f}"
+            duration_display = "unknown" if duration_seconds is None else f"{duration_seconds:.3f}s"
+            response_tokens_display = "unknown" if response_tokens is None else str(response_tokens)
+            response_speed_display = (
+                "unknown"
+                if response_tokens_per_second is None
+                else f"{response_tokens_per_second:.3f}"
+            )
             return (
-                f"[{self._format_clock(record)}] LLM response: "
-                f"duration_s={duration_display} "
-                f"output_tokens={response_tokens_display} "
-                f"output_tps={response_speed_display}"
+                f"[{self._format_clock(record)}] "
+                f"LLM RES  {getattr(record, 'llm_prompt_type', 'llm')}  "
+                f"dur={duration_display}  out={response_tokens_display}  "
+                f"tps={response_speed_display}"
             )
         if event_type == "llm_content":
             lines = ["", f"===== {getattr(record, 'llm_title', 'LLM')} ====="]
@@ -144,6 +155,12 @@ class CodeWikiFormatter(logging.Formatter):
 
     def _format_clock(self, record: logging.LogRecord) -> str:
         return datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+
+    def _format_counter(self, current: Any, total: Any) -> str:
+        if not isinstance(current, int) or not isinstance(total, int):
+            return ""
+        width = max(2, len(str(current)), len(str(total)))
+        return f"[{current:0{width}d}/{total:0{width}d}] "
 
 
 def configure_logging(verbosity: int = 0) -> logging.Logger:
@@ -225,10 +242,29 @@ class CLILogger:
         elapsed: str | None = None,
         verbosity_gate: int = 0,
     ):
+        self.stage_start(
+            message,
+            step=step,
+            total=total,
+            elapsed=elapsed,
+            verbosity_gate=verbosity_gate,
+        )
+
+    def stage_start(
+        self,
+        message: str,
+        *,
+        step: int,
+        total: int,
+        elapsed: str | None = None,
+        verbosity_gate: int = 0,
+    ):
+        self._last_stage_step = step
+        self._last_stage_total = total
         self._log(
             logging.INFO,
             message,
-            event_type="progress_stage",
+            event_type="stage_start",
             verbosity_gate=verbosity_gate,
             step=step,
             total=total,
@@ -236,10 +272,13 @@ class CLILogger:
         )
 
     def progress_update(self, message: str, *, elapsed: str, verbosity_gate: int = 1):
+        self.stage_update(message, elapsed=elapsed, verbosity_gate=verbosity_gate)
+
+    def stage_update(self, message: str, *, elapsed: str, verbosity_gate: int = 1):
         self._log(
             logging.INFO,
             message,
-            event_type="progress_update",
+            event_type="stage_update",
             verbosity_gate=verbosity_gate,
             elapsed=elapsed,
         )
@@ -252,13 +291,34 @@ class CLILogger:
         stage_time: float | None = None,
         verbosity_gate: int = 1,
     ):
+        self.stage_complete(
+            message,
+            step=getattr(self, "_last_stage_step", None),
+            total=getattr(self, "_last_stage_total", None),
+            elapsed=elapsed,
+            stage_time=stage_time,
+            verbosity_gate=verbosity_gate,
+        )
+
+    def stage_complete(
+        self,
+        message: str,
+        *,
+        step: int | None,
+        total: int | None,
+        elapsed: str,
+        stage_time: float | None = None,
+        verbosity_gate: int = 1,
+    ):
         self._log(
             logging.INFO,
             message,
-            event_type="progress_complete",
+            event_type="stage_complete",
             verbosity_gate=verbosity_gate,
             elapsed=elapsed,
             stage_time=stage_time,
+            step=step,
+            total=total,
         )
 
     def module_progress(
@@ -271,16 +331,57 @@ class CLILogger:
         status: str,
         verbosity_gate: int = 2,
     ):
+        self.module_event(
+            current=current,
+            total=total,
+            module_kind=module_type,
+            module_path=module_path,
+            status=status,
+            verbosity_gate=verbosity_gate,
+        )
+
+    def module_event(
+        self,
+        *,
+        current: int | None = None,
+        total: int | None = None,
+        module_kind: str,
+        module_path: str,
+        status: str,
+        duration_seconds: float | None = None,
+        depth: int = 0,
+        verbosity_gate: int = 2,
+    ):
         self._log(
             logging.INFO,
             module_path,
-            event_type="module_progress",
+            event_type="module_event",
             verbosity_gate=verbosity_gate,
             current=current,
             total=total,
-            module_type=module_type,
+            module_kind=module_kind,
             module_path=module_path,
             status=status,
+            duration_seconds=duration_seconds,
+            depth=depth,
+        )
+
+    def cache(self, subject: str, target: str, *, verbosity_gate: int = 1):
+        self._log(
+            logging.INFO,
+            target,
+            event_type="cache",
+            verbosity_gate=verbosity_gate,
+            cache_subject=subject,
+            cache_target=target,
+        )
+
+    def failure(self, message: str, *, verbosity_gate: int = 1):
+        self._log(
+            logging.ERROR,
+            message,
+            event_type="failure",
+            verbosity_gate=verbosity_gate,
         )
 
     def elapsed_time(self) -> str:
@@ -300,3 +401,67 @@ class CLILogger:
 def create_logger(verbosity: int = 0, name: str = f"{LOGGER_NAME}.cli") -> CLILogger:
     """Create and return a configured CodeWiki logger wrapper."""
     return CLILogger(verbosity=verbosity, name=name)
+
+
+def log_module_event(
+    logger: logging.Logger,
+    *,
+    module_kind: str,
+    module_path: str,
+    status: str,
+    current: int | None = None,
+    total: int | None = None,
+    duration_seconds: float | None = None,
+    depth: int = 0,
+    verbosity_gate: int = 2,
+) -> None:
+    """Emit a structured module lifecycle event."""
+    logger.info(
+        module_path,
+        extra={
+            "event_type": "module_event",
+            "verbosity_gate": verbosity_gate,
+            "module_kind": module_kind,
+            "module_path": module_path,
+            "status": status,
+            "current": current,
+            "total": total,
+            "duration_seconds": duration_seconds,
+            "depth": depth,
+        },
+    )
+
+
+def log_cache_event(
+    logger: logging.Logger,
+    *,
+    subject: str,
+    target: str,
+    verbosity_gate: int = 1,
+) -> None:
+    """Emit a structured cache notice."""
+    logger.info(
+        target,
+        extra={
+            "event_type": "cache",
+            "verbosity_gate": verbosity_gate,
+            "cache_subject": subject,
+            "cache_target": target,
+        },
+    )
+
+
+def log_failure_event(
+    logger: logging.Logger,
+    message: str,
+    *,
+    verbosity_gate: int = 1,
+) -> None:
+    """Emit a short structured failure event."""
+    logger.error(
+        message,
+        extra={
+            "event_type": "failure",
+            "verbosity_gate": verbosity_gate,
+        },
+    )

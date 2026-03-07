@@ -26,12 +26,12 @@ def log_llm_summary(
     response_tokens_per_second: float | None = None,
 ) -> None:
     """Log a compact LLM event for verbosity level 3."""
+    event_type = "llm_request" if phase == "request" else "llm_response"
     logger.debug(
         "",
         extra={
-            "event_type": "llm_summary",
+            "event_type": event_type,
             "verbosity_gate": 3,
-            "llm_phase": phase,
             "llm_prompt_type": prompt_type or _DEFAULT_PROMPT_TYPE,
             "llm_duration_seconds": duration_seconds,
             "llm_request_tokens": request_tokens,

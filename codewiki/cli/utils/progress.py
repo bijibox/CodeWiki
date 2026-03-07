@@ -61,20 +61,19 @@ class ProgressTracker:
 
         stage_name = description or self.STAGE_NAMES.get(stage, f"Stage {stage}")
         elapsed = self._format_elapsed()
-        gate = 1 if self.verbosity >= 1 else 0
-        self.logger.progress_stage(
+        self.logger.stage_start(
             stage_name,
             step=stage,
             total=self.total_stages,
             elapsed=elapsed,
-            verbosity_gate=gate,
+            verbosity_gate=0,
         )
 
     def update_stage(self, progress: float, message: Optional[str] = None):
         self.stage_progress = min(1.0, max(0.0, progress))
 
         if self.verbosity >= 1 and message:
-            self.logger.progress_update(message, elapsed=self._format_elapsed(), verbosity_gate=1)
+            self.logger.stage_update(message, elapsed=self._format_elapsed(), verbosity_gate=1)
 
     def complete_stage(self, message: Optional[str] = None):
         self.stage_progress = 1.0
@@ -82,16 +81,16 @@ class ProgressTracker:
         if self.verbosity >= 1:
             stage_time = time.time() - self.current_stage_start
             stage_name = self.STAGE_NAMES.get(self.current_stage, f"Stage {self.current_stage}")
-            self.logger.progress_complete(
-                stage_name + " complete",
+            self.logger.stage_complete(
+                stage_name,
+                step=self.current_stage,
+                total=self.total_stages,
                 elapsed=self._format_elapsed(),
                 stage_time=stage_time,
                 verbosity_gate=1,
             )
             if message:
-                self.logger.progress_update(
-                    message, elapsed=self._format_elapsed(), verbosity_gate=1
-                )
+                self.logger.stage_update(message, elapsed=self._format_elapsed(), verbosity_gate=1)
 
     def detail(self, message: str, min_verbosity: int = 2):
         if self.verbosity >= min_verbosity:
@@ -150,7 +149,6 @@ class ModuleProgressBar:
         logger: CLILogger | None = None,
     ):
         self.total_modules = total_modules
-        self.current_module = 0
         self.verbosity = normalize_verbosity(verbosity)
         self.logger = logger or create_logger(
             verbosity=self.verbosity, name="codewiki.cli.module_progress"
@@ -159,34 +157,41 @@ class ModuleProgressBar:
     def update(
         self,
         module_name: str,
-        cached: bool = False,
         *,
+        phase: str,
+        index: int,
+        total: int,
         module_type: str | None = None,
         module_path: str | None = None,
         status: str | None = None,
+        duration_seconds: float | None = None,
+        depth: int = 0,
     ):
-        self.current_module += 1
-        resolved_status = status or ("cached" if cached else "generated")
+        if self.verbosity < 2:
+            return
 
-        if self.verbosity >= 2:
-            self.logger.module_progress(
-                current=self.current_module,
-                total=self.total_modules,
-                module_type=module_type or "module",
-                module_path=module_path or module_name,
-                status=resolved_status,
-                verbosity_gate=2,
-            )
-        elif self.verbosity >= 1:
-            display_status = "✓ (cached)" if cached else "⟳ (generating)"
-            self.logger.module_progress(
-                current=self.current_module,
-                total=self.total_modules,
-                module_type="module",
-                module_path=f"{module_name}... {display_status}",
-                status="",
-                verbosity_gate=1,
-            )
+        resolved_status = self._resolve_status(phase, status)
+        self.logger.module_event(
+            current=index,
+            total=total or self.total_modules,
+            module_kind=module_type or "module",
+            module_path=module_path or module_name,
+            status=resolved_status,
+            duration_seconds=duration_seconds,
+            depth=depth,
+            verbosity_gate=2,
+        )
 
     def finish(self):
         """Keep compatibility with the previous API."""
+
+    def _resolve_status(self, phase: str, status: str | None) -> str:
+        if phase == "started":
+            return "START"
+        normalized = (status or "generated").lower()
+        return {
+            "generated": "DONE",
+            "cached": "CACHED",
+            "skipped": "SKIPPED",
+            "failed": "FAILED",
+        }.get(normalized, normalized.upper())

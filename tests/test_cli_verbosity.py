@@ -42,9 +42,9 @@ def test_progress_tracker_verbosity_one_shows_stage_details(capsys: pytest.Captu
     tracker.complete_stage("done")
 
     output = capsys.readouterr().out
-    assert "Phase 1/5: Dependency Analysis" in output
+    assert "Stage 1/5  Dependency Analysis" in output
     assert "Parsing source files..." in output
-    assert "Dependency Analysis complete" in output
+    assert "Stage 1/5  Dependency Analysis  DONE" in output
 
 
 def test_progress_tracker_elapsed_shows_tenths(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,14 +63,57 @@ def test_module_progress_bar_verbosity_two_shows_extended_progress(
 
     progress_bar.update(
         "core",
+        phase="started",
+        index=1,
+        total=2,
+        module_type="leaf",
+        module_path="src/core",
+        status="started",
+    )
+    progress_bar.update(
+        "core",
+        phase="finished",
+        index=1,
+        total=2,
         module_type="leaf",
         module_path="src/core",
         status="generated",
+        duration_seconds=0.5,
     )
     progress_bar.finish()
 
     output = capsys.readouterr().out
-    assert "[1/2] leaf src/core... generated" in output
+    assert "[01/02] leaf  src/core  START" in output
+    assert "[01/02] leaf  src/core  DONE 0.5s" in output
+
+
+def test_module_progress_bar_verbosity_two_renders_terminal_statuses(
+    capsys: pytest.CaptureFixture[str],
+):
+    progress_bar = ModuleProgressBar(total_modules=3, verbosity=2)
+
+    progress_bar.update(
+        "cached",
+        phase="finished",
+        index=2,
+        total=3,
+        module_type="leaf",
+        module_path="src/cached",
+        status="cached",
+    )
+    progress_bar.update(
+        "failed",
+        phase="finished",
+        index=3,
+        total=3,
+        module_type="parent",
+        module_path="src/failed",
+        status="failed",
+    )
+
+    output = capsys.readouterr().out
+    assert "[02/03] leaf  src/cached  CACHED" in output
+    assert "[03/03] parent  src/failed  FAILED" in output
 
 
 def test_call_llm_verbosity_three_shows_summary_only_and_writes_artifact(
@@ -121,8 +164,8 @@ def test_call_llm_verbosity_three_shows_summary_only_and_writes_artifact(
     output = capsys.readouterr().out
     artifacts = sorted((Path(config.docs_dir) / "temp" / "llm").glob("*.md"))
     assert result == "response text"
-    assert "LLM request: type=cluster_modules input_tokens=3" in output
-    assert "LLM response: duration_s=0.250 output_tokens=2 output_tps=8.000" in output
+    assert "LLM REQ  cluster_modules  in=3" in output
+    assert "LLM RES  cluster_modules  dur=0.250s  out=2  tps=8.000" in output
     assert "Explain this repository" not in output
     assert "response text" not in output
     assert len(artifacts) == 1
@@ -186,8 +229,8 @@ def test_call_llm_verbosity_four_shows_full_prompt_and_response(
     )
 
     output = capsys.readouterr().out
-    assert "LLM request: type=cluster_modules input_tokens=3" in output
-    assert "LLM response: duration_s=0.015 output_tokens=2 output_tps=133.333" in output
+    assert "LLM REQ  cluster_modules  in=3" in output
+    assert "LLM RES  cluster_modules  dur=0.015s  out=2  tps=133.333" in output
     assert "===== LLM REQUEST =====" in output
     assert "===== LLM RESPONSE =====" in output
     assert "type: cluster_modules" in output
@@ -417,11 +460,15 @@ async def test_agent_orchestrator_verbosity_three_shows_summary_only_and_writes_
     artifacts = sorted((Path(config.docs_dir) / "temp" / "llm").glob("*.md"))
     assert module_tree == {}
     assert status == "generated"
-    assert "LLM request: type=module_generation input_tokens=18" in output
-    assert "LLM response: duration_s=0.500 output_tokens=5 output_tps=10.000" in output
+    assert "leaf  module  START" in output
+    assert "leaf  module  DONE 0.5s" in output
+    assert "LLM REQ  module_generation  in=18" in output
+    assert "LLM RES  module_generation  dur=0.500s  out=5  tps=10.000" in output
     assert "===== AGENT SYSTEM PROMPT =====" not in output
     assert "Generated documentation" not in output
     assert '"kind": "response"' not in output
+    assert "Processing module:" not in output
+    assert "Successfully processed module:" not in output
     assert len(artifacts) == 1
     artifact_content = artifacts[0].read_text(encoding="utf-8")
     assert "- Duration: `0.500 s`" in artifact_content
@@ -493,8 +540,10 @@ async def test_agent_orchestrator_verbosity_four_shows_prompts_and_messages(
     )
 
     output = capsys.readouterr().out
-    assert "LLM request: type=module_generation input_tokens=18" in output
-    assert "LLM response: duration_s=0.125 output_tokens=5 output_tps=40.000" in output
+    assert "leaf  module  START" in output
+    assert "leaf  module  DONE 0.1s" in output
+    assert "LLM REQ  module_generation  in=18" in output
+    assert "LLM RES  module_generation  dur=0.125s  out=5  tps=40.000" in output
     assert "===== AGENT SYSTEM PROMPT =====" in output
     assert "===== AGENT USER PROMPT =====" in output
     assert "===== AGENT RESULT =====" in output
@@ -573,14 +622,17 @@ async def test_generate_sub_module_documentation_verbosity_three_shows_summary_o
     )
     ctx = cast(RunContext[CodeWikiDeps], SimpleNamespace(deps=deps))
 
-    result = await generate_sub_module_documentation(ctx, {"submodule": ["foo"]})
+    result = await generate_sub_module_documentation(ctx, {"child_docs": ["foo"]})
 
     output = capsys.readouterr().out
     artifacts = sorted((Path(config.docs_dir) / "temp" / "llm").glob("*.md"))
     assert "Generate successfully." in result
-    assert "LLM request: type=sub_module_generation input_tokens=18" in output
-    assert "LLM response: duration_s=0.250 output_tokens=5 output_tps=20.000" in output
+    assert "submodule  child_docs  START" in output
+    assert "submodule  child_docs  DONE 0.2s" in output
+    assert "LLM REQ  sub_module_generation  in=18" in output
+    assert "LLM RES  sub_module_generation  dur=0.250s  out=5  tps=20.000" in output
     assert "Generated sub-module documentation" not in output
+    assert "Generating documentation for sub-module:" not in output
     assert len(artifacts) == 1
     artifact_content = artifacts[0].read_text(encoding="utf-8")
     assert "- Duration: `0.250 s`" in artifact_content

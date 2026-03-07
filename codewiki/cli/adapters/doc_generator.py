@@ -326,18 +326,24 @@ class CLIDocumentationGenerator:
 
     def _handle_module_progress(self, event: Dict[str, Any]):
         """Render module progress events in the CLI."""
-        if self.verbosity < 2 or self.module_progress_bar is None:
-            return
-
-        cached = event.get("status") == "cached"
-        self.module_progress_bar.update(
-            str(event.get("module_name", "")),
-            cached=cached,
-            module_type=str(event.get("module_type", "module")),
-            module_path=str(event.get("module_path", event.get("module_name", ""))),
-            status=str(event.get("status", "generated")),
-        )
+        if self.verbosity >= 2 and self.module_progress_bar is not None:
+            self.module_progress_bar.update(
+                str(event.get("module_name", "")),
+                phase=str(event.get("phase", "finished")),
+                index=int(event.get("index", 0)),
+                total=int(event.get("total", 0)),
+                module_type=str(event.get("module_type", "module")),
+                module_path=str(event.get("module_path", event.get("module_name", ""))),
+                status=str(event.get("status", "generated")),
+                duration_seconds=(
+                    float(event["duration_seconds"])
+                    if event.get("duration_seconds") is not None
+                    else None
+                ),
+                depth=int(event.get("depth", 0)),
+            )
 
         error = event.get("error")
-        if error:
-            self.progress_tracker.detail(f"Module error: {error}")
+        if error and self.verbosity >= 1:
+            module_path = str(event.get("module_path", event.get("module_name", "module")))
+            self.logger.failure(f"{module_path}: {error}", verbosity_gate=1)

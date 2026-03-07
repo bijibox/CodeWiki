@@ -1,7 +1,7 @@
 from pydantic_ai import RunContext, Tool, Agent
 import time
 
-from codewiki.cli.utils.logging import configure_logging
+from codewiki.cli.utils.logging import configure_logging, log_module_event
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
 from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_tool
@@ -44,13 +44,23 @@ async def generate_sub_module_documentation(
     for sub_module_name, core_component_ids in sub_module_specs.items():
         value[sub_module_name] = {"components": core_component_ids, "children": {}}
 
-    for sub_module_name, core_component_ids in sub_module_specs.items():
-
-        # Create visual indentation for nested modules
-        indent = "  " * deps.current_depth
-        arrow = "└─" if deps.current_depth > 0 else "→"
-
-        logger.info(f"{indent}{arrow} Generating documentation for sub-module: {sub_module_name}")
+    total_submodules = len(sub_module_specs)
+    for index, (sub_module_name, core_component_ids) in enumerate(
+        sub_module_specs.items(), start=1
+    ):
+        submodule_depth = deps.current_depth + 1
+        submodule_path = (
+            "/".join([*deps.path_to_current_module, sub_module_name]) or sub_module_name
+        )
+        log_module_event(
+            logger,
+            current=index,
+            total=total_submodules,
+            module_kind="submodule",
+            module_path=submodule_path,
+            status="start",
+            depth=submodule_depth,
+        )
 
         num_tokens = count_tokens(
             format_potential_core_components(core_component_ids, ctx.deps.components)[-1]
@@ -109,84 +119,106 @@ async def generate_sub_module_documentation(
         # log the current module tree
         # print(f"Current module tree: {json.dumps(deps.module_tree, indent=4)}")
 
-        user_prompt = ctx.deps.config.prompts.build_user_prompt(
-            module_name=deps.current_module_name,
-            core_component_ids=core_component_ids,
-            components=ctx.deps.components,
-            module_tree=ctx.deps.module_tree,
-        )
-        model_label = agent_model_label(ctx.deps.config)
-        log_llm_content(
-            logger,
-            "AGENT USER PROMPT",
-            user_prompt,
-            prompt_type="sub_module_generation",
-            model=model_label,
-            context=sub_module_name,
-        )
-        request_tokens = count_tokens(system_prompt) + count_tokens(user_prompt)
-        log_llm_summary(
-            logger,
-            "request",
-            prompt_type="sub_module_generation",
-            request_tokens=request_tokens,
-        )
-        started_at = time.perf_counter()
-        result = await sub_agent.run(
-            user_prompt,
-            deps=ctx.deps,
-        )
-        duration_ms = round((time.perf_counter() - started_at) * 1000)
-        duration_seconds = duration_ms / 1000
-        response_tokens = count_tokens(result.output)
-        response_tokens_per_second = (
-            response_tokens / duration_seconds if duration_seconds > 0 else None
-        )
-        log_llm_summary(
-            logger,
-            "response",
-            prompt_type="sub_module_generation",
-            duration_seconds=duration_seconds,
-            response_tokens=response_tokens,
-            response_tokens_per_second=response_tokens_per_second,
-        )
-        log_llm_content(
-            logger,
-            "AGENT RESULT",
-            result.output,
-            prompt_type="sub_module_generation",
-            model=model_label,
-            context=sub_module_name,
-        )
-        message_history, message_history_language = format_payload(result.new_messages_json())
-        log_llm_content(
-            logger,
-            "AGENT MESSAGE HISTORY",
-            message_history,
-            prompt_type="sub_module_generation",
-            model=model_label,
-            context=sub_module_name,
-        )
-        write_llm_markdown_artifact(
-            ctx.deps.config,
-            prompt_type="sub_module_generation",
-            model=model_label,
-            context=sub_module_name,
-            duration_seconds=duration_seconds,
-            request_tokens=request_tokens,
-            response_tokens=response_tokens,
-            response_tokens_per_second=response_tokens_per_second,
-            sections=(
-                ("System Prompt", system_prompt, "text"),
-                ("User Prompt", user_prompt, "text"),
-                ("Result", result.output, "markdown"),
-                ("Message History", message_history, message_history_language),
-            ),
-        )
-
-        # remove the sub-module name from the path to current module and the module tree
-        deps.path_to_current_module.pop()
-        deps.current_depth -= 1
+        try:
+            user_prompt = ctx.deps.config.prompts.build_user_prompt(
+                module_name=deps.current_module_name,
+                core_component_ids=core_component_ids,
+                components=ctx.deps.components,
+                module_tree=ctx.deps.module_tree,
+            )
+            model_label = agent_model_label(ctx.deps.config)
+            log_llm_content(
+                logger,
+                "AGENT USER PROMPT",
+                user_prompt,
+                prompt_type="sub_module_generation",
+                model=model_label,
+                context=sub_module_name,
+            )
+            request_tokens = count_tokens(system_prompt) + count_tokens(user_prompt)
+            log_llm_summary(
+                logger,
+                "request",
+                prompt_type="sub_module_generation",
+                request_tokens=request_tokens,
+            )
+            started_at = time.perf_counter()
+            result = await sub_agent.run(
+                user_prompt,
+                deps=ctx.deps,
+            )
+            duration_ms = round((time.perf_counter() - started_at) * 1000)
+            duration_seconds = duration_ms / 1000
+            response_tokens = count_tokens(result.output)
+            response_tokens_per_second = (
+                response_tokens / duration_seconds if duration_seconds > 0 else None
+            )
+            log_llm_summary(
+                logger,
+                "response",
+                prompt_type="sub_module_generation",
+                duration_seconds=duration_seconds,
+                response_tokens=response_tokens,
+                response_tokens_per_second=response_tokens_per_second,
+            )
+            log_llm_content(
+                logger,
+                "AGENT RESULT",
+                result.output,
+                prompt_type="sub_module_generation",
+                model=model_label,
+                context=sub_module_name,
+            )
+            message_history, message_history_language = format_payload(result.new_messages_json())
+            log_llm_content(
+                logger,
+                "AGENT MESSAGE HISTORY",
+                message_history,
+                prompt_type="sub_module_generation",
+                model=model_label,
+                context=sub_module_name,
+            )
+            write_llm_markdown_artifact(
+                ctx.deps.config,
+                prompt_type="sub_module_generation",
+                model=model_label,
+                context=sub_module_name,
+                duration_seconds=duration_seconds,
+                request_tokens=request_tokens,
+                response_tokens=response_tokens,
+                response_tokens_per_second=response_tokens_per_second,
+                sections=(
+                    ("System Prompt", system_prompt, "text"),
+                    ("User Prompt", user_prompt, "text"),
+                    ("Result", result.output, "markdown"),
+                    ("Message History", message_history, message_history_language),
+                ),
+            )
+            log_module_event(
+                logger,
+                current=index,
+                total=total_submodules,
+                module_kind="submodule",
+                module_path=submodule_path,
+                status="done",
+                duration_seconds=duration_seconds,
+                depth=submodule_depth,
+            )
+        except Exception:
+            log_module_event(
+                logger,
+                current=index,
+                total=total_submodules,
+                module_kind="submodule",
+                module_path=submodule_path,
+                status="failed",
+                depth=submodule_depth,
+            )
+            raise
+        finally:
+            # Restore traversal state even if a nested agent run fails.
+            deps.path_to_current_module.pop()
+            deps.current_depth -= 1
 
     # restore the previous module name
     deps.current_module_name = previous_module_name
