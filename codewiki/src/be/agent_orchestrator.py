@@ -1,9 +1,10 @@
 from pydantic_ai import Agent
+
 # import logfire
 import logging
 import os
 import traceback
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 # Configure logging and monitoring
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 #     logfire_token = os.getenv('LOGFIRE_TOKEN')
 #     logfire_project = os.getenv('LOGFIRE_PROJECT_NAME', 'default')
 #     logfire_service = os.getenv('LOGFIRE_SERVICE_NAME', 'default')
-    
+
 #     if logfire_token:
 #         # Configure with explicit token (for Docker)
 #         logfire.configure(
@@ -28,10 +29,10 @@ logger = logging.getLogger(__name__)
 #             project_name=logfire_project,
 #             service_name=logfire_service,
 #         )
-    
+
 #     logfire.instrument_pydantic_ai()
 #     logger.debug(f"Logfire configured successfully for project: {logfire_project}")
-    
+
 # except Exception as e:
 #     logger.warning(f"Failed to configure logfire: {e}")
 
@@ -39,7 +40,9 @@ logger = logging.getLogger(__name__)
 from codewiki.src.be.agent_tools.deps import CodeWikiDeps
 from codewiki.src.be.agent_tools.read_code_components import read_code_components_tool
 from codewiki.src.be.agent_tools.str_replace_editor import str_replace_editor_tool
-from codewiki.src.be.agent_tools.generate_sub_module_documentations import generate_sub_module_documentation_tool
+from codewiki.src.be.agent_tools.generate_sub_module_documentations import (
+    generate_sub_module_documentation_tool,
+)
 from codewiki.src.be.llm_services import create_fallback_models
 from codewiki.src.be.prompt_template import (
     format_user_prompt,
@@ -58,49 +61,56 @@ from codewiki.src.be.dependency_analyzer.models.core import Node
 
 class AgentOrchestrator:
     """Orchestrates the AI agents for documentation generation."""
-    
+
     def __init__(self, config: Config):
         self.config = config
         self.fallback_models = create_fallback_models(config)
         self.custom_instructions = config.get_prompt_addition() if config else None
-    
-    def create_agent(self, module_name: str, components: Dict[str, Any], 
-                    core_component_ids: List[str]) -> Agent:
+
+    def create_agent(
+        self, module_name: str, components: Dict[str, Any], core_component_ids: List[str]
+    ) -> Agent[CodeWikiDeps, str]:
         """Create an appropriate agent based on module complexity."""
-        
+
         if is_complex_module(components, core_component_ids):
-            return Agent(
+            return Agent[CodeWikiDeps, str](
                 self.fallback_models,
                 name=module_name,
                 deps_type=CodeWikiDeps,
                 tools=[
-                    read_code_components_tool, 
-                    str_replace_editor_tool, 
-                    generate_sub_module_documentation_tool
+                    read_code_components_tool,
+                    str_replace_editor_tool,
+                    generate_sub_module_documentation_tool,
                 ],
                 system_prompt=format_system_prompt(module_name, self.custom_instructions),
             )
         else:
-            return Agent(
+            return Agent[CodeWikiDeps, str](
                 self.fallback_models,
                 name=module_name,
                 deps_type=CodeWikiDeps,
                 tools=[read_code_components_tool, str_replace_editor_tool],
                 system_prompt=format_leaf_system_prompt(module_name, self.custom_instructions),
             )
-    
-    async def process_module(self, module_name: str, components: Dict[str, Node], 
-                           core_component_ids: List[str], module_path: List[str], working_dir: str) -> Dict[str, Any]:
+
+    async def process_module(
+        self,
+        module_name: str,
+        components: Dict[str, Node],
+        core_component_ids: List[str],
+        module_path: List[str],
+        working_dir: str,
+    ) -> Dict[str, Any]:
         """Process a single module and generate its documentation."""
         logger.info(f"Processing module: {module_name}")
-        
+
         # Load or create module tree
         module_tree_path = os.path.join(working_dir, MODULE_TREE_FILENAME)
-        module_tree = file_manager.load_json(module_tree_path)
-        
+        module_tree = file_manager.load_json(module_tree_path) or {}
+
         # Create agent
         agent = self.create_agent(module_name, components, core_component_ids)
-        
+
         # Create dependencies
         deps = CodeWikiDeps(
             absolute_docs_path=working_dir,
@@ -113,7 +123,7 @@ class AgentOrchestrator:
             max_depth=self.config.max_depth,
             current_depth=1,
             config=self.config,
-            custom_instructions=self.custom_instructions
+            custom_instructions=self.custom_instructions,
         )
 
         # check if overview docs already exists
@@ -127,7 +137,7 @@ class AgentOrchestrator:
         if os.path.exists(docs_path):
             logger.info(f"✓ Module docs already exists at {docs_path}")
             return module_tree
-        
+
         # Run agent
         try:
             await agent.run(
@@ -135,17 +145,17 @@ class AgentOrchestrator:
                     module_name=module_name,
                     core_component_ids=core_component_ids,
                     components=components,
-                    module_tree=deps.module_tree
+                    module_tree=deps.module_tree,
                 ),
-                deps=deps
+                deps=deps,
             )
-            
+
             # Save updated module tree
             file_manager.save_json(deps.module_tree, module_tree_path)
             logger.debug(f"Successfully processed module: {module_name}")
-            
+
             return deps.module_tree
-            
+
         except Exception as e:
             logger.error(f"Error processing module {module_name}: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")

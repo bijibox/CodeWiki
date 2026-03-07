@@ -29,10 +29,10 @@ class CallGraphAnalyzer:
         Complete analysis: Analyze all files to build complete call graph with all nodes.
 
         This approach:
-        1. Analyzes all code files 
+        1. Analyzes all code files
         2. Extracts all functions and relationships
         3. Builds complete call graph
-        4. Returns all nodes and relationships 
+        4. Returns all nodes and relationships
         """
         logger.debug(f"Starting analysis of {len(code_files)} files")
 
@@ -157,9 +157,7 @@ class CallGraphAnalyzer:
         from codewiki.src.be.dependency_analyzer.analyzers.python import analyze_python_file
 
         try:
-            functions, relationships = analyze_python_file(
-                file_path, content, repo_path=base_dir
-            )
+            functions, relationships = analyze_python_file(file_path, content, repo_path=base_dir)
 
             for func in functions:
                 func_id = func.id if func.id else f"{file_path}:{func.name}"
@@ -180,7 +178,9 @@ class CallGraphAnalyzer:
         """
         try:
 
-            from codewiki.src.be.dependency_analyzer.analyzers.javascript import analyze_javascript_file_treesitter
+            from codewiki.src.be.dependency_analyzer.analyzers.javascript import (
+                analyze_javascript_file_treesitter,
+            )
 
             functions, relationships = analyze_javascript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -197,7 +197,7 @@ class CallGraphAnalyzer:
 
     def _analyze_typescript_file(self, file_path: str, content: str, repo_dir: str):
         """
-        Analyze TypeScript file using tree-sitter based AST analyzer 
+        Analyze TypeScript file using tree-sitter based AST analyzer
 
         Args:
             file_path: Relative path to the TypeScript file
@@ -205,7 +205,9 @@ class CallGraphAnalyzer:
         """
         try:
 
-            from codewiki.src.be.dependency_analyzer.analyzers.typescript import analyze_typescript_file_treesitter
+            from codewiki.src.be.dependency_analyzer.analyzers.typescript import (
+                analyze_typescript_file_treesitter,
+            )
 
             functions, relationships = analyze_typescript_file_treesitter(
                 file_path, content, repo_path=repo_dir
@@ -219,8 +221,6 @@ class CallGraphAnalyzer:
 
         except Exception as e:
             logger.error(f"Failed to analyze TypeScript file {file_path}: {e}", exc_info=True)
-
-
 
     def _analyze_c_file(self, file_path: str, content: str, repo_dir: str):
         """
@@ -251,9 +251,7 @@ class CallGraphAnalyzer:
         """
         from codewiki.src.be.dependency_analyzer.analyzers.cpp import analyze_cpp_file
 
-        functions, relationships = analyze_cpp_file(
-            file_path, content, repo_path=repo_dir
-        )
+        functions, relationships = analyze_cpp_file(file_path, content, repo_path=repo_dir)
 
         for func in functions:
             func_id = func.id if func.id else f"{file_path}:{func.name}"
@@ -525,7 +523,7 @@ class CallGraphAnalyzer:
             self.functions = {fid: func for fid, func in self.functions.items() if fid in func_ids}
             return
 
-        graph = {}
+        graph: dict[str, set[str]] = {}
         for rel in self.call_relationships:
             if rel.caller in self.functions:
                 if rel.caller not in graph:
@@ -538,11 +536,15 @@ class CallGraphAnalyzer:
                 graph[rel.caller].add(rel.callee)
                 graph[rel.callee].add(rel.caller)
 
-        degree_centrality = {}
+        degree_centrality: dict[str, int] = {}
         for func_id in self.functions.keys():
             degree_centrality[func_id] = len(graph.get(func_id, set()))
 
-        sorted_func_ids = sorted(degree_centrality, key=degree_centrality.get, reverse=True)
+        sorted_func_ids = sorted(
+            degree_centrality,
+            key=lambda func_id: degree_centrality[func_id],
+            reverse=True,
+        )
 
         selected_func_ids = sorted_func_ids[:target_count]
 
@@ -557,4 +559,3 @@ class CallGraphAnalyzer:
             for rel in self.call_relationships
             if rel.caller in selected_func_ids and rel.callee in selected_func_ids
         ]
-

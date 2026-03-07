@@ -9,13 +9,12 @@ from codewiki.src.be.utils import is_complex_module, count_tokens
 from codewiki.src.be.cluster_modules import format_potential_core_components
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
-
 async def generate_sub_module_documentation(
-    ctx: RunContext[CodeWikiDeps],
-    sub_module_specs: dict[str, list[str]]
+    ctx: RunContext[CodeWikiDeps], sub_module_specs: dict[str, list[str]]
 ) -> str:
     """Generate detailed description of a given sub-module specs to the sub-agents
 
@@ -25,7 +24,7 @@ async def generate_sub_module_documentation(
 
     deps = ctx.deps
     previous_module_name = deps.current_module_name
-    
+
     # Create fallback models from config
     fallback_models = create_fallback_models(deps.config)
 
@@ -35,7 +34,7 @@ async def generate_sub_module_documentation(
         value = value[key]["children"]
     for sub_module_name, core_component_ids in sub_module_specs.items():
         value[sub_module_name] = {"components": core_component_ids, "children": {}}
-    
+
     for sub_module_name, core_component_ids in sub_module_specs.items():
 
         # Create visual indentation for nested modules
@@ -44,22 +43,36 @@ async def generate_sub_module_documentation(
 
         logger.info(f"{indent}{arrow} Generating documentation for sub-module: {sub_module_name}")
 
-        num_tokens = count_tokens(format_potential_core_components(core_component_ids, ctx.deps.components)[-1])
-        
-        if is_complex_module(ctx.deps.components, core_component_ids) and ctx.deps.current_depth < ctx.deps.max_depth and num_tokens >= ctx.deps.config.max_token_per_leaf_module:
-            sub_agent = Agent(
+        num_tokens = count_tokens(
+            format_potential_core_components(core_component_ids, ctx.deps.components)[-1]
+        )
+
+        if (
+            is_complex_module(ctx.deps.components, core_component_ids)
+            and ctx.deps.current_depth < ctx.deps.max_depth
+            and num_tokens >= ctx.deps.config.max_token_per_leaf_module
+        ):
+            sub_agent: Agent[CodeWikiDeps, str] = Agent(
                 model=fallback_models,
                 name=sub_module_name,
                 deps_type=CodeWikiDeps,
-                system_prompt=SYSTEM_PROMPT.format(module_name=sub_module_name, custom_instructions=ctx.deps.custom_instructions),
-                tools=[read_code_components_tool, str_replace_editor_tool, generate_sub_module_documentation_tool],
+                system_prompt=SYSTEM_PROMPT.format(
+                    module_name=sub_module_name, custom_instructions=ctx.deps.custom_instructions
+                ),
+                tools=[
+                    read_code_components_tool,
+                    str_replace_editor_tool,
+                    generate_sub_module_documentation_tool,
+                ],
             )
         else:
-            sub_agent = Agent(
+            sub_agent = Agent[CodeWikiDeps, str](
                 model=fallback_models,
                 name=sub_module_name,
                 deps_type=CodeWikiDeps,
-                system_prompt=LEAF_SYSTEM_PROMPT.format(module_name=sub_module_name, custom_instructions=ctx.deps.custom_instructions),
+                system_prompt=LEAF_SYSTEM_PROMPT.format(
+                    module_name=sub_module_name, custom_instructions=ctx.deps.custom_instructions
+                ),
                 tools=[read_code_components_tool, str_replace_editor_tool],
             )
 
@@ -76,7 +89,7 @@ async def generate_sub_module_documentation(
                 components=ctx.deps.components,
                 module_tree=ctx.deps.module_tree,
             ),
-            deps=ctx.deps
+            deps=ctx.deps,
         )
 
         # remove the sub-module name from the path to current module and the module tree
@@ -89,4 +102,9 @@ async def generate_sub_module_documentation(
     return f"Generate successfully. Documentations: {', '.join([key + '.md' for key in sub_module_specs.keys()])} are saved in the working directory."
 
 
-generate_sub_module_documentation_tool = Tool(function=generate_sub_module_documentation, name="generate_sub_module_documentation", description="Generate detailed description of a given sub-module specs to the sub-agents", takes_ctx=True)
+generate_sub_module_documentation_tool = Tool(
+    function=generate_sub_module_documentation,
+    name="generate_sub_module_documentation",
+    description="Generate detailed description of a given sub-module specs to the sub-agents",
+    takes_ctx=True,
+)

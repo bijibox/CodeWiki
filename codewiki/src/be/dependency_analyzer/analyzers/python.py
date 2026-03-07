@@ -29,9 +29,9 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         self.call_relationships: List[CallRelationship] = []
         self.current_class_name: str | None = None
         self.current_function_name: str | None = None
-        
-        self.top_level_nodes = {}
-    
+
+        self.top_level_nodes: dict[str, Node] = {}
+
     def _get_relative_path(self) -> str:
         """Get relative path from repo root."""
         if self.repo_path:
@@ -42,14 +42,14 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         try:
             relative_path = self._get_relative_path()
             path = relative_path
-            for ext in ['.py', '.pyx']:
+            for ext in [".py", ".pyx"]:
                 if path.endswith(ext):
-                    path = path[:-len(ext)]
+                    path = path[: -len(ext)]
                     break
-            return path.replace('/', '.').replace('\\', '.')
+            return path.replace("/", ".").replace("\\", ".")
         except (TypeError, ValueError):
-            return str(self.file_path).replace('/', '.').replace('\\', '.')
-    
+            return str(self.file_path).replace("/", ".").replace("\\", ".")
+
     def _get_component_id(self, name: str) -> str:
         """Generate dot-separated component ID."""
         module_path = self._get_module_path()
@@ -67,19 +67,20 @@ class PythonASTAnalyzer(ast.NodeVisitor):
 
         base_classes = [self._extract_base_class_name(base) for base in node.bases]
         base_classes = [name for name in base_classes if name is not None]
-        
+
         component_id = f"{self._get_module_path()}.{node.name}"
         relative_path = self._get_relative_path()
-        
+
+        end_line = node.end_lineno or node.lineno
         class_node = Node(
             id=component_id,
             name=node.name,
             component_type="class",
             file_path=str(self.file_path),
             relative_path=relative_path,
-            source_code="\n".join(self.lines[node.lineno - 1 : node.end_lineno or node.lineno]),
+            source_code="\n".join(self.lines[node.lineno - 1 : end_line]),
             start_line=node.lineno,
-            end_line=node.end_lineno,
+            end_line=end_line,
             has_docstring=bool(ast.get_docstring(node)),
             docstring=ast.get_docstring(node) or "",
             parameters=None,
@@ -87,24 +88,26 @@ class PythonASTAnalyzer(ast.NodeVisitor):
             base_classes=base_classes if base_classes else None,
             class_name=None,
             display_name=f"class {node.name}",
-            component_id=component_id
+            component_id=component_id,
         )
         self.nodes.append(class_node)
         self.top_level_nodes[node.name] = class_node
 
         for base_name in base_classes:
             if base_name in self.top_level_nodes:
-                self.call_relationships.append(CallRelationship(
-                    caller=component_id,
-                    callee=f"{self._get_module_path()}.{base_name}",
-                    call_line=node.lineno,
-                    is_resolved=True
-                ))
+                self.call_relationships.append(
+                    CallRelationship(
+                        caller=component_id,
+                        callee=f"{self._get_module_path()}.{base_name}",
+                        call_line=node.lineno,
+                        is_resolved=True,
+                    )
+                )
 
         self.current_class_name = node.name
         self.generic_visit(node)
         self.current_class_name = None
-    
+
     def _extract_base_class_name(self, base):
         """Extract base class name from AST node."""
         if isinstance(base, ast.Name):
@@ -126,16 +129,17 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         if not self.current_class_name:
             component_id = f"{self._get_module_path()}.{node.name}"
             relative_path = self._get_relative_path()
-            
+
+            end_line = node.end_lineno or node.lineno
             func_node = Node(
                 id=component_id,
                 name=node.name,
                 component_type="function",
                 file_path=str(self.file_path),
                 relative_path=relative_path,
-                source_code="\n".join(self.lines[node.lineno - 1 : node.end_lineno or node.lineno]),
+                source_code="\n".join(self.lines[node.lineno - 1 : end_line]),
                 start_line=node.lineno,
-                end_line=node.end_lineno,
+                end_line=end_line,
                 has_docstring=bool(ast.get_docstring(node)),
                 docstring=ast.get_docstring(node) or "",
                 parameters=[arg.arg for arg in node.args.args],
@@ -143,7 +147,7 @@ class PythonASTAnalyzer(ast.NodeVisitor):
                 base_classes=None,
                 class_name=None,
                 display_name=f"function {node.name}",
-                component_id=component_id
+                component_id=component_id,
             )
             if self._should_include_function(func_node):
                 self.nodes.append(func_node)
@@ -176,17 +180,17 @@ class PythonASTAnalyzer(ast.NodeVisitor):
                     caller_id = f"{self._get_module_path()}.{self.current_class_name}"
                 else:
                     caller_id = f"{self._get_module_path()}.{self.current_function_name}"
-                
+
                 if call_name in self.top_level_nodes:
                     callee_id = f"{self._get_module_path()}.{call_name}"
                 else:
                     callee_id = call_name
-                
+
                 relationship = CallRelationship(
                     caller=caller_id,
                     callee=callee_id,
                     call_line=node.lineno,
-                    is_resolved=call_name in self.top_level_nodes  
+                    is_resolved=call_name in self.top_level_nodes,
                 )
                 self.call_relationships.append(relationship)
 
@@ -198,12 +202,53 @@ class PythonASTAnalyzer(ast.NodeVisitor):
         Handles simple names, attributes (obj.method), and filters built-ins.
         """
         PYTHON_BUILTINS = {
-            "print", "len", "str", "int", "float", "bool", "list", "dict", "tuple", "set",
-            "range", "enumerate", "zip", "isinstance", "hasattr", "getattr", "setattr",
-            "open", "super", "__import__", "type", "object", "Exception", "ValueError",
-            "TypeError", "KeyError", "IndexError", "AttributeError", "ImportError",
-            "max", "min", "sum", "abs", "round", "sorted", "reversed", "filter", "map",
-            "any", "all", "next", "iter", "callable", "repr", "format", "exec", "eval"
+            "print",
+            "len",
+            "str",
+            "int",
+            "float",
+            "bool",
+            "list",
+            "dict",
+            "tuple",
+            "set",
+            "range",
+            "enumerate",
+            "zip",
+            "isinstance",
+            "hasattr",
+            "getattr",
+            "setattr",
+            "open",
+            "super",
+            "__import__",
+            "type",
+            "object",
+            "Exception",
+            "ValueError",
+            "TypeError",
+            "KeyError",
+            "IndexError",
+            "AttributeError",
+            "ImportError",
+            "max",
+            "min",
+            "sum",
+            "abs",
+            "round",
+            "sorted",
+            "reversed",
+            "filter",
+            "map",
+            "any",
+            "all",
+            "next",
+            "iter",
+            "callable",
+            "repr",
+            "format",
+            "exec",
+            "eval",
         }
 
         if isinstance(node, ast.Name):
