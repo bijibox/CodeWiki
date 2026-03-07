@@ -51,7 +51,7 @@ class TreeSitterJavaAnalyzer:
         else:
             return f"{module_path}.{name}"
 
-    def _analyze(self):
+    def _analyze(self) -> None:
         language_capsule = tree_sitter_java.language()
         java_language = Language(language_capsule)
         parser = Parser(java_language)

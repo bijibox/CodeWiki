@@ -1,7 +1,9 @@
+from typing import Any
 from pathlib import Path
 from types import SimpleNamespace
 
 from click.testing import CliRunner
+from pytest import MonkeyPatch
 
 from codewiki.cli.commands.generate import generate_command
 from codewiki.cli.models.config import AgentInstructions, Configuration
@@ -27,16 +29,23 @@ class _FakeConfigManager:
         return "secret"
 
 
-def test_generate_command_accepts_prompt_name(monkeypatch, tmp_path):
-    captured: dict[str, object] = {}
+def test_generate_command_accepts_prompt_name(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
 
     class FakeGenerator:
-        def __init__(self, repo_path, output_dir, config, verbose=False, generate_html=False):
+        def __init__(
+            self,
+            repo_path: Path,
+            output_dir: Path,
+            config: dict[str, Any],
+            verbose: bool = False,
+            generate_html: bool = False,
+        ) -> None:
             captured["repo_path"] = repo_path
             captured["output_dir"] = output_dir
             captured["config"] = config
 
-        def generate(self):
+        def generate(self) -> SimpleNamespace:
             return SimpleNamespace(
                 files_generated=["overview.md"],
                 module_count=1,

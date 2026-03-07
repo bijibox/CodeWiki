@@ -51,7 +51,7 @@ class TreeSitterCppAnalyzer:
             )
         return f"{module_path}.{name}" if module_path else name
 
-    def _analyze(self):
+    def _analyze(self) -> None:
         language_capsule = tree_sitter_cpp.language()
         cpp_language = Language(language_capsule)
         parser = Parser(cpp_language)

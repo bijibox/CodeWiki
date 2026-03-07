@@ -47,7 +47,7 @@ class TreeSitterCSharpAnalyzer:
         module_path = self._get_module_path()
         return f"{module_path}.{name}" if module_path else name
 
-    def _analyze(self):
+    def _analyze(self) -> None:
         language_capsule = tree_sitter_c_sharp.language()
         cs_language = Language(language_capsule)
         parser = Parser(cs_language)
