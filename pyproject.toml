@@ -116,10 +116,12 @@ disallow_incomplete_defs = false
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint]
+ignore = ["E402", "F541"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --cov=codewiki --cov-report=term-missing"
-

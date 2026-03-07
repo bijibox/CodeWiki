@@ -6,7 +6,7 @@ import sys
 import logging
 import traceback
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List
 import click
 import time
 
@@ -286,7 +286,7 @@ def generate_command(
         click.echo()
         
         # Create generation options
-        generation_options = GenerationOptions(
+        GenerationOptions(
             create_branch=create_branch,
             github_pages=github_pages,
             no_cache=no_cache,
@@ -372,8 +372,8 @@ def generate_command(
         
         # Get repository info
         repo_url = None
-        commit_hash = get_git_commit_hash(repo_path)
-        current_branch = get_git_branch(repo_path)
+        get_git_commit_hash(repo_path)
+        get_git_branch(repo_path)
         
         if is_git_repository(repo_path):
             try:
@@ -381,7 +381,7 @@ def generate_command(
                 repo = git.Repo(repo_path)
                 if repo.remotes:
                     repo_url = repo.remotes.origin.url
-            except:
+            except Exception:
                 pass
         
         # Display instructions
@@ -417,4 +417,3 @@ def generate_command(
         sys.exit(130)
     except Exception as e:
         sys.exit(handle_error(e, verbose=verbose))
-

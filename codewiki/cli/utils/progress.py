@@ -3,8 +3,7 @@ Progress indicator utilities for CLI.
 """
 
 import time
-from typing import Optional, Callable
-from datetime import datetime
+from typing import Optional
 import click
 
 

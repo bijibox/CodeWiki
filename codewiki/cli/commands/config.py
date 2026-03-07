@@ -12,7 +12,6 @@ from codewiki.cli.models.config import AgentInstructions
 from codewiki.cli.utils.errors import (
     ConfigurationError, 
     handle_error, 
-    EXIT_SUCCESS,
     EXIT_CONFIG_ERROR
 )
 from codewiki.cli.utils.validation import (
@@ -493,9 +492,9 @@ def config_validate(quick: bool, verbose: bool):
             try:
                 from openai import OpenAI
                 client = OpenAI(api_key=api_key, base_url=config.base_url)
-                response = client.models.list()
+                client.models.list()
                 click.secho("✓ API connectivity test successful", fg="green")
-            except Exception as e:
+            except Exception:
                 click.secho("✗ API connectivity test failed", fg="red")
                 sys.exit(EXIT_CONFIG_ERROR)
         

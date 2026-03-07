@@ -1,7 +1,6 @@
 import logging
 from typing import List, Optional, Tuple
 from pathlib import Path
-import sys
 import os
 
 from tree_sitter import Parser, Language
@@ -279,7 +278,7 @@ class TreeSitterKotlinAnalyzer:
                     
                     if object_node and method_node:
                         object_name = object_node.text.decode() if hasattr(object_node, 'text') else str(object_node)
-                        method_name = method_node.text.decode()
+                        method_node.text.decode()
                         
                         target_type = None
                         if object_name in top_level_nodes:

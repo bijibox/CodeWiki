@@ -4,7 +4,6 @@ Background worker for processing documentation generation jobs.
 """
 
 import os
-import json
 import time
 import threading
 import subprocess
@@ -13,7 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from queue import Queue
 from typing import Dict
-from dataclasses import asdict
 
 from codewiki.src.be.documentation_generator import DocumentationGenerator
 from codewiki.src.config import Config, MAIN_MODEL
