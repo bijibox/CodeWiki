@@ -401,6 +401,7 @@
         const CONFIG = {{CONFIG_JSON}};
         const MODULE_TREE = {{MODULE_TREE_JSON}};
         const METADATA = {{METADATA_JSON}};
+        const EMBEDDED_DOCS = {{EMBEDDED_DOCS_JSON}};
         const DOCS_BASE_PATH = '{{DOCS_BASE_PATH}}';
         
         // Initialize marked with options
@@ -507,13 +508,7 @@
             content.style.display = 'none';
             
             try {
-                const docPath = DOCS_BASE_PATH ? `${DOCS_BASE_PATH}/${filename}` : filename;
-                const response = await fetch(docPath);
-                if (!response.ok) {
-                    throw new Error(`Failed to load ${filename}`);
-                }
-                
-                const markdown = await response.text();
+                const markdown = await getDocumentMarkdown(filename);
                 const html = await renderMarkdown(markdown);
                 
                 content.innerHTML = html;
@@ -533,6 +528,20 @@
                 console.error('Error loading document:', error);
                 showError(`Failed to load document: ${filename}`);
             }
+        }
+
+        async function getDocumentMarkdown(filename) {
+            if (Object.prototype.hasOwnProperty.call(EMBEDDED_DOCS, filename)) {
+                return EMBEDDED_DOCS[filename];
+            }
+
+            const docPath = DOCS_BASE_PATH ? `${DOCS_BASE_PATH}/${filename}` : filename;
+            const response = await fetch(docPath);
+            if (!response.ok) {
+                throw new Error(`Failed to load ${filename}`);
+            }
+
+            return await response.text();
         }
         
         function setupMarkdownLinks() {
@@ -640,4 +649,3 @@
     </script>
 </body>
 </html>
-

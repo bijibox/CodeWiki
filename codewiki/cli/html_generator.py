@@ -75,6 +75,26 @@ class HTMLGenerator:
             # Non-critical, return None
             return None
 
+    def load_documents(self, docs_dir: Path) -> dict[str, str]:
+        """
+        Load markdown documents from the documentation directory.
+
+        Args:
+            docs_dir: Documentation directory path
+
+        Returns:
+            Mapping of relative markdown filenames to file contents
+        """
+        documents: dict[str, str] = {}
+
+        try:
+            for file_path in sorted(docs_dir.glob("*.md")):
+                documents[file_path.name] = safe_read(file_path)
+        except Exception as e:
+            raise FileSystemError(f"Failed to load markdown documents: {e}")
+
+        return documents
+
     def generate(
         self,
         output_path: Path,
@@ -100,11 +120,13 @@ class HTMLGenerator:
             metadata: Metadata dictionary (auto-loaded from docs_dir if not provided)
         """
         # Auto-load module_tree and metadata from docs_dir if not provided
+        embedded_docs: dict[str, str] = {}
         if docs_dir:
             if module_tree is None:
                 module_tree = self.load_module_tree(docs_dir)
             if metadata is None:
                 metadata = self.load_metadata(docs_dir)
+            embedded_docs = self.load_documents(docs_dir)
 
         # Default values
         if module_tree is None:
@@ -143,6 +165,7 @@ class HTMLGenerator:
         config_json = json.dumps(config, indent=2)
         module_tree_json = json.dumps(module_tree, indent=2)
         metadata_json = json.dumps(metadata, indent=2) if metadata else "null"
+        embedded_docs_json = json.dumps(embedded_docs, indent=2)
 
         # Replace placeholders
         html_content = template_content
@@ -154,6 +177,7 @@ class HTMLGenerator:
             "{{CONFIG_JSON}}": config_json,
             "{{MODULE_TREE_JSON}}": module_tree_json,
             "{{METADATA_JSON}}": metadata_json,
+            "{{EMBEDDED_DOCS_JSON}}": embedded_docs_json,
             "{{DOCS_BASE_PATH}}": docs_base_path,
         }
 
