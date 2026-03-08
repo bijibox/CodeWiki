@@ -572,7 +572,7 @@
                     
                     // Extract filename without anchor
                     const fullMatch = mdMatch[1];
-                    const filename = fullMatch.split('#')[0];
+                    const filename = decodeURIComponent(fullMatch.split('#')[0]);
                     
                     // Load the document
                     loadDocument(filename);
@@ -595,6 +595,12 @@
         }
         
         async function renderMarkdown(markdown) {
+            // Encode spaces in markdown link URLs so marked.js can parse them
+            markdown = markdown.replace(
+                /\[([^\]]*)\]\(([^)]*\s[^)]*)\)/g,
+                (match, text, url) => `[${text}](${url.replace(/ /g, '%20')})`
+            );
+
             // Convert markdown to HTML using marked
             let html = marked.parse(markdown);
             

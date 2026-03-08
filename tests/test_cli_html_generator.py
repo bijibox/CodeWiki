@@ -28,3 +28,28 @@ def test_html_generator_embeds_markdown_documents_for_offline_viewing(tmp_path: 
     assert '"CLI Module.md": "# CLI Module\\n\\nDetails.\\n"' in html
     assert "const markdown = await getDocumentMarkdown(filename);" in html
     assert "Object.prototype.hasOwnProperty.call(EMBEDDED_DOCS, filename)" in html
+
+
+def test_html_generator_template_encodes_spaces_in_markdown_links(tmp_path: Path) -> None:
+    """Verify the template preprocesses markdown links with spaces in URLs."""
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+
+    (docs_dir / "overview.md").write_text("# Overview\n", encoding="utf-8")
+    (docs_dir / "module_tree.json").write_text(json.dumps({}), encoding="utf-8")
+    (docs_dir / "metadata.json").write_text(json.dumps({"generation_info": {}}), encoding="utf-8")
+
+    output_path = docs_dir / "index.html"
+
+    HTMLGenerator().generate(
+        output_path=output_path,
+        title="Test",
+        docs_dir=docs_dir,
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+
+    # renderMarkdown() must encode spaces in link URLs before marked.parse()
+    assert "url.replace(/ /g, '%20')" in html
+    # setupMarkdownLinks() must decode %20 back to spaces for EMBEDDED_DOCS lookup
+    assert "decodeURIComponent(fullMatch.split('#')[0])" in html
